@@ -1,9 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-export async function updateSession(
-  request: NextRequest
-) {
+export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({
     request,
   });
@@ -18,64 +16,55 @@ export async function updateSession(
         },
 
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(
-            ({ name, value }) => {
-              request.cookies.set(name, value);
-            }
-          );
+          cookiesToSet.forEach(({ name, value }) => {
+            request.cookies.set(name, value);
+          });
 
           response = NextResponse.next({
             request,
           });
 
-          cookiesToSet.forEach(
-            ({ name, value, options }) => {
-              response.cookies.set(
-                name,
-                value,
-                options
-              );
-            }
-          );
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
         },
       },
     }
   );
 
-  const { data: claimsData } =
-    await supabase.auth.getClaims();
-
-  const claims = claimsData?.claims ?? null;
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
 
   const pathname = request.nextUrl.pathname;
 
-  const isAuthPage =
-    pathname.startsWith("/auth/");
+  console.log("=================================");
+  console.log("PROXY REQUEST:", pathname);
+  console.log("USER:", user?.email ?? "NO USER");
+  console.log("AUTH ERROR:", error?.message ?? "NONE");
+  console.log("=================================");
 
-  /*
-   * USER IS NOT LOGGED IN
-   *
-   * Protect everything except /auth/*
-   */
+  const isAuthPage = pathname.startsWith("/auth/");
+  const isRootPage = pathname === "/";
 
-  if (!claims && !isAuthPage) {
+  if (!user && !isAuthPage && !isRootPage) {
+    console.log("PROXY: redirecting to LOGIN");
+
     return NextResponse.redirect(
       new URL("/auth/login", request.url)
     );
   }
 
-  /*
-   * USER IS ALREADY LOGGED IN
-   *
-   * Don't allow logged-in users to stay
-   * on login/signup/auth pages.
-   */
+  if (user && isAuthPage) {
+    console.log("PROXY: logged-in user -> dashboard");
 
-  if (claims && isAuthPage) {
     return NextResponse.redirect(
-      new URL("/", request.url)
+      new URL("/dashboard", request.url)
     );
   }
+
+  console.log("PROXY: allowing request");
 
   return response;
 }

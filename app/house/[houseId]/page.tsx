@@ -47,8 +47,7 @@ export default function HousePage() {
   const [showDeleteHouse, setShowDeleteHouse] = useState(false);
   const [showDeleteRoom, setShowDeleteRoom] = useState(false);
 
-  const [selectedRoom, setSelectedRoom] =
-    useState<Room | null>(null);
+  const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
 
   const [roomName, setRoomName] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState("");
@@ -90,9 +89,7 @@ export default function HousePage() {
         const { data: roomsData, error: roomsError } =
           await supabase
             .from("rooms")
-            .select(
-              "id, house_id, name, slug, created_at"
-            )
+            .select("id, house_id, name, slug, created_at")
             .eq("house_id", houseId)
             .order("created_at", {
               ascending: true,
@@ -104,11 +101,10 @@ export default function HousePage() {
 
         setRooms(roomsData || []);
       } catch (err: any) {
-        console.error(err);
+        console.error("Load house error:", err);
 
         setError(
-          err?.message ||
-            "Unable to load this house."
+          err?.message || "Unable to load this house."
         );
       } finally {
         setLoading(false);
@@ -179,6 +175,11 @@ export default function HousePage() {
           .single();
 
       if (insertError) {
+        console.error(
+          "Create room error:",
+          insertError
+        );
+
         if (insertError.code === "23505") {
           setError(
             "A room with this name already exists."
@@ -220,6 +221,15 @@ export default function HousePage() {
       return;
     }
 
+    if (
+      deleteConfirm.trim() !== selectedRoom.name
+    ) {
+      setError(
+        `Please type "${selectedRoom.name}" exactly to confirm.`
+      );
+      return;
+    }
+
     setError("");
     setDeletingRoom(true);
 
@@ -233,10 +243,6 @@ export default function HousePage() {
         return;
       }
 
-      /* -----------------------------------------------
-         DELETE ROOM
-      ------------------------------------------------ */
-
       const { error: deleteError } =
         await supabase
           .from("rooms")
@@ -247,10 +253,6 @@ export default function HousePage() {
       if (deleteError) {
         throw deleteError;
       }
-
-      /* -----------------------------------------------
-         REMOVE FROM UI
-      ------------------------------------------------ */
 
       setRooms((current) =>
         current.filter(
@@ -265,8 +267,7 @@ export default function HousePage() {
       console.error(err);
 
       setError(
-        err?.message ||
-          "Unable to delete this room."
+        err?.message || "Unable to delete this room."
       );
     } finally {
       setDeletingRoom(false);
@@ -302,10 +303,6 @@ export default function HousePage() {
         return;
       }
 
-      /* -----------------------------------------------
-         DELETE ROOMS
-      ------------------------------------------------ */
-
       const { error: roomsDeleteError } =
         await supabase
           .from("rooms")
@@ -315,10 +312,6 @@ export default function HousePage() {
       if (roomsDeleteError) {
         throw roomsDeleteError;
       }
-
-      /* -----------------------------------------------
-         DELETE HOUSE
-      ------------------------------------------------ */
 
       const { error: houseDeleteError } =
         await supabase
@@ -330,14 +323,13 @@ export default function HousePage() {
         throw houseDeleteError;
       }
 
-      router.replace("/");
+      router.replace("/dashboard");
       router.refresh();
     } catch (err: any) {
       console.error(err);
 
       setError(
-        err?.message ||
-          "Unable to delete this house."
+        err?.message || "Unable to delete this house."
       );
 
       setDeletingHouse(false);
@@ -350,19 +342,21 @@ export default function HousePage() {
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
+      <main className="flex min-h-screen items-center justify-center bg-[#f7fbfc]">
+
         <div className="text-center">
 
           <Loader2
             size={34}
-            className="mx-auto animate-spin text-cyan-400"
+            className="mx-auto animate-spin text-[#42B8C5]"
           />
 
-          <p className="mt-3 text-sm text-slate-400">
+          <p className="mt-4 text-sm text-slate-400">
             Loading house...
           </p>
 
         </div>
+
       </main>
     );
   }
@@ -373,25 +367,26 @@ export default function HousePage() {
 
   if (!house) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-white">
+      <main className="flex min-h-screen items-center justify-center bg-[#f7fbfc] px-4">
 
-        <div className="text-center">
+        <div className="w-full max-w-md rounded-[30px] bg-white p-8 text-center shadow-sm">
 
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-red-500/10 text-red-400">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-red-50 text-red-400">
             <Home size={30} />
           </div>
 
-          <h1 className="mt-5 text-xl font-semibold">
+          <h1 className="mt-5 text-xl font-semibold text-slate-700">
             House not found
           </h1>
 
-          <p className="mt-2 text-sm text-slate-500">
+          <p className="mt-2 text-sm leading-6 text-slate-400">
             {error || "This house does not exist."}
           </p>
 
           <button
-            onClick={() => router.push("/")}
-            className="mt-6 inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
+            type="button"
+            onClick={() => router.push("/dashboard")}
+            className="mt-6 inline-flex items-center gap-2 rounded-2xl bg-[#42B8C5] px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
           >
             <ArrowLeft size={18} />
             Back to Dashboard
@@ -408,19 +403,20 @@ export default function HousePage() {
   ===================================================== */
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
+    <main className="min-h-screen bg-[#f7fbfc] px-4 py-6 sm:px-6">
 
-      <div className="mx-auto max-w-6xl px-5 py-8 sm:px-6">
+      <div className="mx-auto max-w-6xl">
 
         {/* =================================================
-            HEADER
+            TOP HEADER
         ================================================= */}
 
-        <header className="mb-8">
+        <header className="mb-7 rounded-[30px] bg-white p-6 shadow-sm sm:p-7">
 
           <button
-            onClick={() => router.push("/")}
-            className="mb-6 flex items-center gap-2 text-sm text-slate-400 transition hover:text-white"
+            type="button"
+            onClick={() => router.push("/dashboard")}
+            className="mb-6 flex items-center gap-2 text-sm font-medium text-slate-400 transition hover:text-[#42B8C5]"
           >
             <ArrowLeft size={17} />
             Back to Dashboard
@@ -430,21 +426,21 @@ export default function HousePage() {
 
             <div className="flex items-center gap-4">
 
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-500/10 text-cyan-400">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#42B8C5]/10 text-[#42B8C5]">
                 <Home size={27} />
               </div>
 
               <div>
 
-                <p className="text-xs uppercase tracking-wider text-slate-500">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#42B8C5]">
                   House
                 </p>
 
-                <h1 className="mt-1 text-2xl font-bold sm:text-3xl">
+                <h1 className="mt-1 text-2xl font-semibold text-slate-700 sm:text-3xl">
                   {house.name}
                 </h1>
 
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="mt-1 text-sm text-slate-400">
                   /{house.slug}
                 </p>
 
@@ -455,23 +451,26 @@ export default function HousePage() {
             <div className="flex flex-wrap gap-3">
 
               <button
+                type="button"
                 onClick={() => {
                   setError("");
+                  setRoomName("");
                   setShowAddRoom(true);
                 }}
-                className="flex items-center justify-center gap-2 rounded-xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
+                className="flex items-center justify-center gap-2 rounded-2xl bg-[#42B8C5] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
               >
                 <Plus size={18} />
                 Add Room
               </button>
 
               <button
+                type="button"
                 onClick={() => {
                   setError("");
                   setDeleteConfirm("");
                   setShowDeleteHouse(true);
                 }}
-                className="flex items-center justify-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-5 py-3 text-sm font-semibold text-red-400 transition hover:border-red-500/50 hover:bg-red-500/20"
+                className="flex items-center justify-center gap-2 rounded-2xl border border-red-100 bg-red-50 px-5 py-3 text-sm font-semibold text-red-500 transition hover:bg-red-100"
               >
                 <Trash2 size={18} />
                 Delete House
@@ -487,9 +486,16 @@ export default function HousePage() {
             ERROR
         ================================================= */}
 
-        {error && (
-          <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-            {error}
+        {error && !showAddRoom && !showDeleteRoom && !showDeleteHouse && (
+          <div className="mb-6 flex items-start gap-3 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-500">
+
+            <AlertTriangle
+              size={18}
+              className="mt-0.5 shrink-0"
+            />
+
+            <p>{error}</p>
+
           </div>
         )}
 
@@ -497,33 +503,57 @@ export default function HousePage() {
             SUMMARY
         ================================================= */}
 
-        <div className="mb-6 grid gap-4 sm:grid-cols-2">
+        <div className="mb-7 grid gap-4 sm:grid-cols-2">
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+          <div className="rounded-[28px] bg-white p-6 shadow-sm">
 
-            <p className="text-sm text-slate-500">
-              Total Rooms
-            </p>
+            <div className="flex items-center justify-between">
 
-            <p className="mt-2 text-3xl font-bold">
-              {rooms.length}
-            </p>
+              <div>
+
+                <p className="text-sm text-slate-400">
+                  Total Rooms
+                </p>
+
+                <p className="mt-2 text-3xl font-semibold text-slate-700">
+                  {rooms.length}
+                </p>
+
+              </div>
+
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#42B8C5]/10 text-[#42B8C5]">
+                <DoorOpen size={23} />
+              </div>
+
+            </div>
 
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+          <div className="rounded-[28px] bg-white p-6 shadow-sm">
 
-            <p className="text-sm text-slate-500">
-              House Status
-            </p>
+            <div className="flex items-center justify-between">
 
-            <p className="mt-2 flex items-center gap-2 text-lg font-semibold">
+              <div>
 
-              <span className="h-2.5 w-2.5 rounded-full bg-green-400" />
+                <p className="text-sm text-slate-400">
+                  House Status
+                </p>
 
-              Active
+                <p className="mt-2 flex items-center gap-2 text-lg font-semibold text-slate-700">
 
-            </p>
+                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+
+                  Active
+
+                </p>
+
+              </div>
+
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-500">
+                <Home size={23} />
+              </div>
+
+            </div>
 
           </div>
 
@@ -535,41 +565,62 @@ export default function HousePage() {
 
         <section>
 
-          <div className="mb-5">
+          <div className="mb-5 flex items-center justify-between">
 
-            <h2 className="text-xl font-semibold">
-              Rooms
-            </h2>
+            <div>
 
-            <p className="mt-1 text-sm text-slate-500">
-              Select a room to manage its devices.
-            </p>
+              <h2 className="text-xl font-semibold text-slate-700">
+                Rooms
+              </h2>
+
+              <p className="mt-1 text-sm text-slate-400">
+                Select a room to manage its devices.
+              </p>
+
+            </div>
+
+            {rooms.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setError("");
+                  setRoomName("");
+                  setShowAddRoom(true);
+                }}
+                className="hidden items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-[#42B8C5]/40 hover:text-[#42B8C5] sm:flex"
+              >
+                <Plus size={17} />
+                Add Room
+              </button>
+            )}
 
           </div>
 
           {rooms.length === 0 ? (
 
-            <div className="rounded-3xl border border-dashed border-slate-700 bg-slate-900/50 px-6 py-16 text-center">
+            <div className="rounded-[30px] border border-dashed border-slate-200 bg-white px-6 py-16 text-center shadow-sm">
 
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-cyan-500/10 text-cyan-400">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#42B8C5]/10 text-[#42B8C5]">
                 <DoorOpen size={30} />
               </div>
 
-              <h3 className="mt-5 text-xl font-semibold">
+              <h3 className="mt-5 text-lg font-semibold text-slate-700">
                 No rooms yet
               </h3>
 
-              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
+              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-400">
                 Add your first room to start connecting
                 ESP controllers and devices.
               </p>
 
               <button
+                type="button"
                 onClick={() => {
                   setError("");
+                  setRoomName("");
                   setShowAddRoom(true);
                 }}
-                className="mt-6 inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
+                className="mt-6 inline-flex items-center gap-2 rounded-2xl bg-[#42B8C5] px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90"
               >
                 <Plus size={18} />
                 Add Your First Room
@@ -585,43 +636,46 @@ export default function HousePage() {
 
                 <div
                   key={room.id}
-                  className="group rounded-3xl border border-slate-800 bg-slate-900 p-5 transition hover:border-cyan-500/40 hover:bg-slate-900/80"
+                  className="group rounded-[28px] bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-md"
                 >
 
                   <div className="flex items-start justify-between">
 
                     <button
+                      type="button"
                       onClick={() =>
                         router.push(
                           `/house/${house.id}/room/${room.id}`
                         )
                       }
-                      className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-500/10 text-cyan-400"
+                      className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#42B8C5]/10 text-[#42B8C5] transition hover:bg-[#42B8C5]/15"
                     >
-                      <DoorOpen size={23} />
+                      <DoorOpen size={25} />
                     </button>
 
                     <div className="flex items-center gap-1">
 
                       <button
+                        type="button"
                         onClick={() =>
                           router.push(
                             `/house/${house.id}/room/${room.id}`
                           )
                         }
-                        className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-800 hover:text-cyan-400"
+                        className="rounded-xl p-2 text-slate-300 transition hover:bg-[#42B8C5]/10 hover:text-[#42B8C5]"
                       >
                         <ChevronRight size={20} />
                       </button>
 
                       <button
+                        type="button"
                         onClick={() => {
                           setSelectedRoom(room);
                           setDeleteConfirm("");
                           setError("");
                           setShowDeleteRoom(true);
                         }}
-                        className="rounded-lg p-2 text-slate-600 transition hover:bg-red-500/10 hover:text-red-400"
+                        className="rounded-xl p-2 text-slate-300 transition hover:bg-red-50 hover:text-red-500"
                       >
                         <Trash2 size={18} />
                       </button>
@@ -631,6 +685,7 @@ export default function HousePage() {
                   </div>
 
                   <button
+                    type="button"
                     onClick={() =>
                       router.push(
                         `/house/${house.id}/room/${room.id}`
@@ -639,22 +694,23 @@ export default function HousePage() {
                     className="mt-5 block w-full text-left"
                   >
 
-                    <h3 className="text-lg font-semibold">
+                    <h3 className="text-lg font-semibold text-slate-700">
                       {room.name}
                     </h3>
 
-                    <p className="mt-1 text-sm text-slate-500">
+                    <p className="mt-1 text-sm text-slate-400">
                       /{room.slug}
                     </p>
 
-                    <div className="mt-5 flex items-center justify-between border-t border-slate-800 pt-4">
+                    <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
 
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs font-medium text-slate-400">
                         Devices
                       </span>
 
-                      <span className="text-xs text-slate-400">
-                        Open room →
+                      <span className="flex items-center gap-1 text-xs font-medium text-[#42B8C5]">
+                        Open room
+                        <ChevronRight size={14} />
                       </span>
 
                     </div>
@@ -679,40 +735,75 @@ export default function HousePage() {
 
       {showAddRoom && (
 
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !creatingRoom) {
+              setShowAddRoom(false);
+              setRoomName("");
+              setError("");
+            }
+          }}
+        >
 
-          <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+          <div
+            className="w-full max-w-md rounded-[30px] bg-white p-7 shadow-2xl"
+            onMouseDown={(event) =>
+              event.stopPropagation()
+            }
+          >
 
             <div className="flex items-start justify-between">
 
               <div>
 
-                <h2 className="text-xl font-semibold">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#42B8C5]/10 text-[#42B8C5]">
+                  <DoorOpen size={24} />
+                </div>
+
+                <h2 className="mt-4 text-2xl font-semibold text-slate-700">
                   Add Room
                 </h2>
 
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="mt-1 text-sm text-slate-400">
                   Add a room inside {house.name}.
                 </p>
 
               </div>
 
               <button
+                type="button"
                 onClick={() => {
-                  setShowAddRoom(false);
-                  setRoomName("");
-                  setError("");
+                  if (!creatingRoom) {
+                    setShowAddRoom(false);
+                    setRoomName("");
+                    setError("");
+                  }
                 }}
-                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-800 hover:text-white"
+                disabled={creatingRoom}
+                className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
               >
-                <X size={19} />
+                <X size={20} />
               </button>
 
             </div>
 
+            {error && (
+              <div className="mt-5 flex items-start gap-3 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-500">
+
+                <AlertTriangle
+                  size={18}
+                  className="mt-0.5 shrink-0"
+                />
+
+                <p>{error}</p>
+
+              </div>
+            )}
+
             <div className="mt-6">
 
-              <label className="mb-2 block text-sm font-medium text-slate-300">
+              <label className="mb-2 block text-sm font-medium text-slate-500">
                 Room Name
               </label>
 
@@ -724,40 +815,41 @@ export default function HousePage() {
                 }
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
+                    event.preventDefault();
                     handleAddRoom();
                   }
                 }}
                 placeholder="e.g. Bedroom"
                 autoFocus
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3.5 text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-500"
+                disabled={creatingRoom}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-slate-700 outline-none transition placeholder:text-slate-300 focus:border-[#42B8C5] focus:ring-2 focus:ring-[#42B8C5]/10 disabled:bg-slate-50"
               />
 
             </div>
 
-            {error && (
-              <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-                {error}
-              </div>
-            )}
-
             <div className="mt-6 flex gap-3">
 
               <button
+                type="button"
                 onClick={() => {
                   setShowAddRoom(false);
                   setRoomName("");
                   setError("");
                 }}
                 disabled={creatingRoom}
-                className="flex-1 rounded-xl border border-slate-700 py-3 text-sm font-medium text-slate-300 transition hover:bg-slate-800 disabled:opacity-50"
+                className="flex-1 rounded-2xl border border-slate-200 py-3.5 text-sm font-medium text-slate-500 transition hover:bg-slate-50 disabled:opacity-50"
               >
                 Cancel
               </button>
 
               <button
+                type="button"
                 onClick={handleAddRoom}
-                disabled={creatingRoom}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-cyan-500 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:opacity-60"
+                disabled={
+                  creatingRoom ||
+                  !roomName.trim()
+                }
+                className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#42B8C5] py-3.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
 
                 {creatingRoom ? (
@@ -791,25 +883,43 @@ export default function HousePage() {
 
       {showDeleteRoom && selectedRoom && (
 
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (
+              event.target === event.currentTarget &&
+              !deletingRoom
+            ) {
+              setShowDeleteRoom(false);
+              setSelectedRoom(null);
+              setDeleteConfirm("");
+              setError("");
+            }
+          }}
+        >
 
-          <div className="w-full max-w-md rounded-3xl border border-red-500/20 bg-slate-900 p-6 shadow-2xl">
+          <div
+            className="w-full max-w-md rounded-[30px] bg-white p-7 shadow-2xl"
+            onMouseDown={(event) =>
+              event.stopPropagation()
+            }
+          >
 
             <div className="flex items-start justify-between">
 
               <div className="flex items-center gap-3">
 
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-500/10 text-red-400">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-500">
                   <AlertTriangle size={24} />
                 </div>
 
                 <div>
 
-                  <h2 className="text-xl font-semibold">
+                  <h2 className="text-xl font-semibold text-slate-700">
                     Delete Room
                   </h2>
 
-                  <p className="mt-1 text-sm text-slate-500">
+                  <p className="mt-1 text-sm text-slate-400">
                     This action cannot be undone.
                   </p>
 
@@ -818,6 +928,7 @@ export default function HousePage() {
               </div>
 
               <button
+                type="button"
                 onClick={() => {
                   if (!deletingRoom) {
                     setShowDeleteRoom(false);
@@ -827,24 +938,24 @@ export default function HousePage() {
                   }
                 }}
                 disabled={deletingRoom}
-                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-800 hover:text-white disabled:opacity-50"
+                className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
               >
-                <X size={19} />
+                <X size={20} />
               </button>
 
             </div>
 
-            <div className="mt-6 rounded-2xl border border-red-500/20 bg-red-500/5 p-4">
+            <div className="mt-6 rounded-2xl border border-red-100 bg-red-50 p-4">
 
-              <p className="text-sm leading-6 text-slate-300">
+              <p className="text-sm leading-6 text-slate-500">
                 You are about to permanently delete:
               </p>
 
-              <p className="mt-2 font-semibold text-red-400">
+              <p className="mt-2 font-semibold text-red-500">
                 {selectedRoom.name}
               </p>
 
-              <p className="mt-3 text-xs leading-5 text-slate-500">
+              <p className="mt-3 text-xs leading-5 text-slate-400">
                 Any devices or data linked to this room may
                 also prevent deletion unless their database
                 relationship allows cascading.
@@ -854,11 +965,11 @@ export default function HousePage() {
 
             <div className="mt-6">
 
-              <label className="mb-2 block text-sm font-medium text-slate-300">
+              <label className="mb-2 block text-sm font-medium text-slate-500">
 
                 Type{" "}
 
-                <span className="font-semibold text-white">
+                <span className="font-semibold text-slate-700">
                   {selectedRoom.name}
                 </span>{" "}
 
@@ -875,13 +986,13 @@ export default function HousePage() {
                 disabled={deletingRoom}
                 placeholder={selectedRoom.name}
                 autoFocus
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3.5 text-white outline-none transition placeholder:text-slate-700 focus:border-red-500 disabled:opacity-60"
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-slate-700 outline-none transition placeholder:text-slate-300 focus:border-red-400 focus:ring-2 focus:ring-red-100 disabled:bg-slate-50"
               />
 
             </div>
 
             {error && (
-              <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              <div className="mt-4 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-500">
                 {error}
               </div>
             )}
@@ -889,6 +1000,7 @@ export default function HousePage() {
             <div className="mt-6 flex gap-3">
 
               <button
+                type="button"
                 onClick={() => {
                   setShowDeleteRoom(false);
                   setSelectedRoom(null);
@@ -896,19 +1008,20 @@ export default function HousePage() {
                   setError("");
                 }}
                 disabled={deletingRoom}
-                className="flex-1 rounded-xl border border-slate-700 py-3 text-sm font-medium text-slate-300 transition hover:bg-slate-800 disabled:opacity-50"
+                className="flex-1 rounded-2xl border border-slate-200 py-3.5 text-sm font-medium text-slate-500 transition hover:bg-slate-50 disabled:opacity-50"
               >
                 Cancel
               </button>
 
               <button
+                type="button"
                 onClick={handleDeleteRoom}
                 disabled={
                   deletingRoom ||
                   deleteConfirm.trim() !==
                     selectedRoom.name
                 }
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-500 py-3 text-sm font-semibold text-white transition hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-red-500 py-3.5 text-sm font-semibold text-white transition hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-40"
               >
 
                 {deletingRoom ? (
@@ -942,25 +1055,42 @@ export default function HousePage() {
 
       {showDeleteHouse && (
 
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (
+              event.target === event.currentTarget &&
+              !deletingHouse
+            ) {
+              setShowDeleteHouse(false);
+              setDeleteConfirm("");
+              setError("");
+            }
+          }}
+        >
 
-          <div className="w-full max-w-md rounded-3xl border border-red-500/20 bg-slate-900 p-6 shadow-2xl">
+          <div
+            className="w-full max-w-md rounded-[30px] bg-white p-7 shadow-2xl"
+            onMouseDown={(event) =>
+              event.stopPropagation()
+            }
+          >
 
             <div className="flex items-start justify-between">
 
               <div className="flex items-center gap-3">
 
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-500/10 text-red-400">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-500">
                   <AlertTriangle size={24} />
                 </div>
 
                 <div>
 
-                  <h2 className="text-xl font-semibold">
+                  <h2 className="text-xl font-semibold text-slate-700">
                     Delete House
                   </h2>
 
-                  <p className="mt-1 text-sm text-slate-500">
+                  <p className="mt-1 text-sm text-slate-400">
                     This action cannot be undone.
                   </p>
 
@@ -969,6 +1099,7 @@ export default function HousePage() {
               </div>
 
               <button
+                type="button"
                 onClick={() => {
                   if (!deletingHouse) {
                     setShowDeleteHouse(false);
@@ -977,24 +1108,24 @@ export default function HousePage() {
                   }
                 }}
                 disabled={deletingHouse}
-                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-800 hover:text-white disabled:opacity-50"
+                className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
               >
-                <X size={19} />
+                <X size={20} />
               </button>
 
             </div>
 
-            <div className="mt-6 rounded-2xl border border-red-500/20 bg-red-500/5 p-4">
+            <div className="mt-6 rounded-2xl border border-red-100 bg-red-50 p-4">
 
-              <p className="text-sm leading-6 text-slate-300">
+              <p className="text-sm leading-6 text-slate-500">
                 You are about to permanently delete:
               </p>
 
-              <p className="mt-2 font-semibold text-red-400">
+              <p className="mt-2 font-semibold text-red-500">
                 {house.name}
               </p>
 
-              <p className="mt-3 text-xs leading-5 text-slate-500">
+              <p className="mt-3 text-xs leading-5 text-slate-400">
                 All rooms belonging to this house will also
                 be removed.
               </p>
@@ -1003,11 +1134,11 @@ export default function HousePage() {
 
             <div className="mt-6">
 
-              <label className="mb-2 block text-sm font-medium text-slate-300">
+              <label className="mb-2 block text-sm font-medium text-slate-500">
 
                 Type{" "}
 
-                <span className="font-semibold text-white">
+                <span className="font-semibold text-slate-700">
                   {house.name}
                 </span>{" "}
 
@@ -1024,13 +1155,13 @@ export default function HousePage() {
                 disabled={deletingHouse}
                 placeholder={house.name}
                 autoFocus
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3.5 text-white outline-none transition placeholder:text-slate-700 focus:border-red-500 disabled:opacity-60"
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-slate-700 outline-none transition placeholder:text-slate-300 focus:border-red-400 focus:ring-2 focus:ring-red-100 disabled:bg-slate-50"
               />
 
             </div>
 
             {error && (
-              <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              <div className="mt-4 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-500">
                 {error}
               </div>
             )}
@@ -1038,24 +1169,26 @@ export default function HousePage() {
             <div className="mt-6 flex gap-3">
 
               <button
+                type="button"
                 onClick={() => {
                   setShowDeleteHouse(false);
                   setDeleteConfirm("");
                   setError("");
                 }}
                 disabled={deletingHouse}
-                className="flex-1 rounded-xl border border-slate-700 py-3 text-sm font-medium text-slate-300 transition hover:bg-slate-800 disabled:opacity-50"
+                className="flex-1 rounded-2xl border border-slate-200 py-3.5 text-sm font-medium text-slate-500 transition hover:bg-slate-50 disabled:opacity-50"
               >
                 Cancel
               </button>
 
               <button
+                type="button"
                 onClick={handleDeleteHouse}
                 disabled={
                   deletingHouse ||
                   deleteConfirm.trim() !== house.name
                 }
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-500 py-3 text-sm font-semibold text-white transition hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-red-500 py-3.5 text-sm font-semibold text-white transition hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-40"
               >
 
                 {deletingHouse ? (
