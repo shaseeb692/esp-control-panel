@@ -1434,31 +1434,167 @@ export default function DevicePage() {
   ===================================================== */
 
   if (loading) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-[#f7fbfc] px-4">
-        <div className="text-center">
-          <div
-            className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl"
-            style={{
-              backgroundColor:
-                `${THEME_COLOR}12`,
-              color:
-                THEME_COLOR,
-            }}
-          >
-            <Loader2
-              size={30}
-              className="animate-spin"
-            />
+  return (
+    <main className="min-h-screen bg-[#f7fbfc] text-slate-600">
+      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 animate-pulse">
+
+        {/* HEADER */}
+        <header className="mb-7">
+
+          {/* Back to Room */}
+          <div className="mb-6 h-5 w-28 rounded-lg bg-slate-200" />
+
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+
+            {/* Device identity */}
+            <div className="flex items-center gap-4">
+
+              <div className="h-14 w-14 shrink-0 rounded-2xl bg-slate-200" />
+
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="h-3 w-14 rounded bg-slate-200" />
+                  <div className="h-5 w-16 rounded-full bg-slate-200" />
+                </div>
+
+                <div className="mt-2 h-8 w-52 rounded-lg bg-slate-200 sm:w-64" />
+
+                <div className="mt-2 h-3 w-32 rounded bg-slate-200" />
+              </div>
+
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-wrap gap-3">
+              <div className="h-12 w-40 rounded-xl bg-slate-200" />
+              <div className="h-12 w-24 rounded-xl bg-slate-200" />
+            </div>
+
+          </div>
+        </header>
+
+
+        {/* SUMMARY CARDS */}
+        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+
+          {[1, 2, 3, 4].map((item) => (
+            <div
+              key={item}
+              className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm"
+            >
+              <div className="flex items-center justify-between">
+
+                <div>
+                  <div className="h-4 w-16 rounded bg-slate-200" />
+                  <div className="mt-3 h-8 w-24 rounded-lg bg-slate-200" />
+                </div>
+
+                <div className="h-11 w-11 rounded-xl bg-slate-200" />
+
+              </div>
+            </div>
+          ))}
+
+        </div>
+
+
+        {/* LIVE STATUS */}
+        <section className="mb-8">
+
+          <div className="mb-5">
+            <div className="h-6 w-28 rounded-lg bg-slate-200" />
+            <div className="mt-2 h-4 w-72 max-w-full rounded bg-slate-200" />
           </div>
 
-          <p className="mt-4 text-sm text-slate-400">
-            Loading device...
-          </p>
-        </div>
-      </main>
-    );
-  }
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+
+            {[1, 2, 3, 4].map((item) => (
+              <div
+                key={item}
+                className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm"
+              >
+                <div className="flex items-start justify-between">
+
+                  <div>
+                    <div className="h-3 w-20 rounded bg-slate-200" />
+                    <div className="mt-4 h-7 w-20 rounded-lg bg-slate-200" />
+                  </div>
+
+                  <div className="h-10 w-10 rounded-xl bg-slate-200" />
+
+                </div>
+              </div>
+            ))}
+
+          </div>
+
+        </section>
+
+
+        {/* CONTROLS */}
+        <section className="mb-8">
+
+          <div className="mb-5">
+            <div className="h-6 w-24 rounded-lg bg-slate-200" />
+            <div className="mt-2 h-4 w-64 max-w-full rounded bg-slate-200" />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+
+            {[1, 2].map((item) => (
+              <div
+                key={item}
+                className="rounded-[24px] border border-slate-100 bg-white p-6 shadow-sm"
+              >
+
+                <div className="flex items-center justify-between">
+
+                  <div>
+                    <div className="h-4 w-28 rounded bg-slate-200" />
+                    <div className="mt-3 h-3 w-40 rounded bg-slate-200" />
+                  </div>
+
+                  <div className="h-10 w-20 rounded-xl bg-slate-200" />
+
+                </div>
+
+                <div className="mt-6 h-12 w-full rounded-xl bg-slate-200" />
+
+              </div>
+            ))}
+
+          </div>
+
+        </section>
+
+
+        {/* DEVICE INFORMATION */}
+        <section className="mb-8">
+
+          <div className="mb-5">
+            <div className="h-6 w-40 rounded-lg bg-slate-200" />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+
+            {[1, 2].map((item) => (
+              <div
+                key={item}
+                className="h-24 rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm"
+              >
+                <div className="h-4 w-28 rounded bg-slate-200" />
+                <div className="mt-3 h-4 w-48 rounded bg-slate-200" />
+              </div>
+            ))}
+
+          </div>
+
+        </section>
+
+      </div>
+    </main>
+  );
+}
 
   /* =====================================================
      DEVICE NOT FOUND

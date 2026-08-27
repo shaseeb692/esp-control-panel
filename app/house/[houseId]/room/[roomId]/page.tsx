@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { navigateWithTransition } from "@/lib/viewTransition";
 
 import {
   ArrowLeft,
-  Plus,
   Loader2,
+  Plus,
   X,
   Cpu,
   ChevronRight,
@@ -417,38 +418,168 @@ export default function RoomPage() {
      DEVICE NAVIGATION
   ===================================================== */
 
-  function openDevice(
-    device: Device
-  ) {
+  function openDevice(device: Device) {
+  navigateWithTransition(() => {
     router.push(
       `/house/${houseId}/room/${roomId}/device/${device.id}`
     );
-  }
+  });
+}
 
-  /* =====================================================
-     LOADING
+    /* =====================================================
+     ROOM SKELETON
   ===================================================== */
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#f7fbfc] px-4">
-        <div className="text-center">
-          <div
-            className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl"
-            style={{
-              backgroundColor: `${THEME_COLOR}12`,
-              color: THEME_COLOR,
-            }}
-          >
-            <Loader2
-              size={30}
-              className="animate-spin"
-            />
+      <main className="min-h-screen bg-[#f7fbfc] text-slate-600">
+        <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+
+          {/* HEADER SKELETON */}
+
+          <header className="mb-7">
+
+            {/* BACK BUTTON */}
+
+            <div className="mb-6 h-5 w-32 animate-pulse rounded-lg bg-slate-200" />
+
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+
+              {/* ROOM INFO */}
+
+              <div className="flex items-center gap-4">
+
+                <div className="h-14 w-14 shrink-0 animate-pulse rounded-2xl bg-slate-200" />
+
+                <div>
+
+                  <div className="h-3 w-12 animate-pulse rounded bg-slate-200" />
+
+                  <div className="mt-2 h-8 w-48 animate-pulse rounded-lg bg-slate-200 sm:w-64" />
+
+                  <div className="mt-2 h-4 w-24 animate-pulse rounded bg-slate-200" />
+
+                </div>
+
+              </div>
+
+              {/* ADD DEVICE */}
+
+              <div className="h-12 w-full animate-pulse rounded-xl bg-slate-200 sm:w-36" />
+
+            </div>
+
+          </header>
+
+
+          {/* SUMMARY SKELETON */}
+
+          <div className="mb-8 grid gap-4 sm:grid-cols-3">
+
+            {[1, 2, 3].map((item) => (
+              <div
+                key={item}
+                className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm"
+              >
+
+                <div className="flex items-center justify-between">
+
+                  <div>
+
+                    <div className="h-4 w-24 animate-pulse rounded bg-slate-200" />
+
+                    <div className="mt-3 h-9 w-12 animate-pulse rounded-lg bg-slate-200" />
+
+                  </div>
+
+                  <div className="h-11 w-11 animate-pulse rounded-xl bg-slate-200" />
+
+                </div>
+
+              </div>
+            ))}
+
           </div>
 
-          <p className="mt-4 text-sm text-slate-400">
-            Loading room...
-          </p>
+
+          {/* DEVICES HEADER SKELETON */}
+
+          <section>
+
+            <div className="mb-5 flex items-end justify-between">
+
+              <div>
+
+                <div className="h-6 w-24 animate-pulse rounded-lg bg-slate-200" />
+
+                <div className="mt-2 h-4 w-64 animate-pulse rounded bg-slate-200" />
+
+              </div>
+
+              <div className="hidden h-7 w-20 animate-pulse rounded-full bg-slate-200 sm:block" />
+
+            </div>
+
+
+            {/* DEVICE CARDS SKELETON */}
+
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+
+              {[1, 2, 3, 4, 5, 6].map((item) => (
+                <div
+                  key={item}
+                  className="rounded-[26px] border border-slate-100 bg-white p-5 shadow-sm"
+                >
+
+                  {/* TOP */}
+
+                  <div className="flex items-start justify-between">
+
+                    <div className="h-12 w-12 animate-pulse rounded-2xl bg-slate-200" />
+
+                    <div className="flex items-center gap-2">
+
+                      <div className="h-8 w-8 animate-pulse rounded-lg bg-slate-200" />
+
+                      <div className="h-8 w-8 animate-pulse rounded-lg bg-slate-200" />
+
+                      <div className="h-8 w-8 animate-pulse rounded-lg bg-slate-200" />
+
+                    </div>
+
+                  </div>
+
+
+                  {/* DEVICE INFO */}
+
+                  <div className="mt-5">
+
+                    <div className="h-6 w-36 animate-pulse rounded-lg bg-slate-200" />
+
+                    <div className="mt-2 h-3 w-24 animate-pulse rounded bg-slate-200" />
+
+                    <div className="mt-4 h-4 w-32 animate-pulse rounded bg-slate-200" />
+
+                  </div>
+
+
+                  {/* STATUS */}
+
+                  <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
+
+                    <div className="h-4 w-16 animate-pulse rounded bg-slate-200" />
+
+                    <div className="h-4 w-16 animate-pulse rounded bg-slate-200" />
+
+                  </div>
+
+                </div>
+              ))}
+
+            </div>
+
+          </section>
+
         </div>
       </main>
     );
@@ -483,10 +614,10 @@ export default function RoomPage() {
 
           <button
             onClick={() =>
-              router.push(
-                `/house/${houseId}`
-              )
-            }
+  navigateWithTransition(() => {
+    router.push(`/house/${houseId}`);
+  })
+}
             className="mx-auto mt-6 flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
             style={{
               backgroundColor:

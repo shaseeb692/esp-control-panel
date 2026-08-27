@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+
 import {
   ArrowLeft,
   Home,
@@ -14,6 +15,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { navigateWithTransition } from "@/lib/viewTransition";
 
 type House = {
   id: string;
@@ -336,30 +338,139 @@ export default function HousePage() {
     }
   }
 
-  /* =====================================================
-     LOADING
-  ===================================================== */
-
   if (loading) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-[#f7fbfc]">
+  return (
+    <main className="min-h-screen bg-[#f7fbfc] px-4 py-6 sm:px-6">
+      <div className="mx-auto max-w-6xl">
 
-        <div className="text-center">
+        {/* HOUSE HEADER SKELETON */}
+        <div className="mb-7 rounded-[30px] bg-white p-6 shadow-sm sm:p-7">
 
-          <Loader2
-            size={34}
-            className="mx-auto animate-spin text-[#42B8C5]"
-          />
+          {/* Back button */}
+          <div className="mb-6 h-5 w-36 animate-pulse rounded-lg bg-slate-100" />
 
-          <p className="mt-4 text-sm text-slate-400">
-            Loading house...
-          </p>
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+
+            {/* House info */}
+            <div className="flex items-center gap-4">
+
+              <div className="h-14 w-14 shrink-0 animate-pulse rounded-2xl bg-slate-100" />
+
+              <div>
+                <div className="h-3 w-16 animate-pulse rounded bg-slate-100" />
+
+                <div className="mt-2 h-8 w-48 animate-pulse rounded-lg bg-slate-100" />
+
+                <div className="mt-2 h-4 w-28 animate-pulse rounded bg-slate-100" />
+              </div>
+
+            </div>
+
+            {/* Buttons */}
+            <div className="flex gap-3">
+
+              <div className="h-12 w-32 animate-pulse rounded-2xl bg-slate-100" />
+
+              <div className="h-12 w-36 animate-pulse rounded-2xl bg-slate-100" />
+
+            </div>
+
+          </div>
 
         </div>
 
-      </main>
-    );
-  }
+        {/* SUMMARY SKELETON */}
+        <div className="mb-7 grid gap-4 sm:grid-cols-2">
+
+          <div className="rounded-[28px] bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between">
+
+              <div>
+                <div className="h-4 w-24 animate-pulse rounded bg-slate-100" />
+                <div className="mt-3 h-9 w-12 animate-pulse rounded-lg bg-slate-100" />
+              </div>
+
+              <div className="h-12 w-12 animate-pulse rounded-2xl bg-slate-100" />
+
+            </div>
+          </div>
+
+          <div className="rounded-[28px] bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between">
+
+              <div>
+                <div className="h-4 w-24 animate-pulse rounded bg-slate-100" />
+                <div className="mt-3 h-7 w-20 animate-pulse rounded-lg bg-slate-100" />
+              </div>
+
+              <div className="h-12 w-12 animate-pulse rounded-2xl bg-slate-100" />
+
+            </div>
+          </div>
+
+        </div>
+
+        {/* ROOMS HEADER SKELETON */}
+        <div className="mb-5 flex items-center justify-between">
+
+          <div>
+            <div className="h-6 w-24 animate-pulse rounded-lg bg-slate-100" />
+
+            <div className="mt-2 h-4 w-64 animate-pulse rounded bg-slate-100" />
+          </div>
+
+          <div className="hidden h-10 w-28 animate-pulse rounded-2xl bg-slate-100 sm:block" />
+
+        </div>
+
+        {/* ROOM CARDS SKELETON */}
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+
+          {[1, 2, 3, 4, 5, 6].map((item) => (
+            <div
+              key={item}
+              className="rounded-[28px] bg-white p-6 shadow-sm"
+            >
+
+              {/* Top */}
+              <div className="flex items-start justify-between">
+
+                <div className="h-14 w-14 animate-pulse rounded-2xl bg-slate-100" />
+
+                <div className="flex gap-1">
+                  <div className="h-9 w-9 animate-pulse rounded-xl bg-slate-100" />
+                  <div className="h-9 w-9 animate-pulse rounded-xl bg-slate-100" />
+                </div>
+
+              </div>
+
+              {/* Room info */}
+              <div className="mt-5">
+
+                <div className="h-5 w-32 animate-pulse rounded-lg bg-slate-100" />
+
+                <div className="mt-2 h-4 w-24 animate-pulse rounded bg-slate-100" />
+
+              </div>
+
+              {/* Bottom */}
+              <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
+
+                <div className="h-3 w-14 animate-pulse rounded bg-slate-100" />
+
+                <div className="h-3 w-20 animate-pulse rounded bg-slate-100" />
+
+              </div>
+
+            </div>
+          ))}
+
+        </div>
+
+      </div>
+    </main>
+  );
+}
 
   /* =====================================================
      HOUSE NOT FOUND
@@ -384,8 +495,12 @@ export default function HousePage() {
           </p>
 
           <button
-            type="button"
-            onClick={() => router.push("/dashboard")}
+  type="button"
+  onClick={() =>
+    navigateWithTransition(() => {
+      router.push("/dashboard");
+    })
+  }
             className="mt-6 inline-flex items-center gap-2 rounded-2xl bg-[#42B8C5] px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
           >
             <ArrowLeft size={18} />
@@ -642,14 +757,16 @@ export default function HousePage() {
                   <div className="flex items-start justify-between">
 
                     <button
-                      type="button"
-                      onClick={() =>
-                        router.push(
-                          `/house/${house.id}/room/${room.id}`
-                        )
-                      }
-                      className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#42B8C5]/10 text-[#42B8C5] transition hover:bg-[#42B8C5]/15"
-                    >
+  type="button"
+  onClick={() =>
+    navigateWithTransition(() => {
+      router.push(
+        `/house/${house.id}/room/${room.id}`
+      );
+    })
+  }
+  className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#42B8C5]/10 text-[#42B8C5] transition hover:bg-[#42B8C5]/15"
+>
                       <DoorOpen size={25} />
                     </button>
 
@@ -685,14 +802,16 @@ export default function HousePage() {
                   </div>
 
                   <button
-                    type="button"
-                    onClick={() =>
-                      router.push(
-                        `/house/${house.id}/room/${room.id}`
-                      )
-                    }
-                    className="mt-5 block w-full text-left"
-                  >
+  type="button"
+  onClick={() =>
+    navigateWithTransition(() => {
+      router.push(
+        `/house/${house.id}/room/${room.id}`
+      );
+    })
+  }
+  className="mt-5 block w-full text-left"
+>
 
                     <h3 className="text-lg font-semibold text-slate-700">
                       {room.name}
