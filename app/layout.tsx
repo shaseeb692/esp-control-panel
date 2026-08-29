@@ -24,6 +24,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <meta
+          name="strix-verification"
+          content="strix-verify-45e3265dfbcb62d522c0919115c58f04"
+        />
+      </head>
       <body
         suppressHydrationWarning
         className={`${geistSans.variable} ${geistMono.variable} min-h-full flex flex-col antialiased`}
