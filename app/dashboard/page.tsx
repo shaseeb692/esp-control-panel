@@ -146,22 +146,178 @@ type SkyStop = {
 };
 
 const SKY_STOPS: SkyStop[] = [
-  { minute: 0, top: "#020617", bottom: "#020617" },
-  { minute: 240, top: "#020617", bottom: "#111827" },
-  { minute: 270, top: "#111827", bottom: "#312E81" },
-  { minute: 300, top: "#312E81", bottom: "#6B5B95" },
-  { minute: 330, top: "#6B5B95", bottom: "#FF8C69" },
-  { minute: 360, top: "#FF8C69", bottom: "#FFD166" },
-  { minute: 420, top: "#FFD166", bottom: "#87CEEB" },
-  { minute: 540, top: "#87CEEB", bottom: "#4FC3F7" },
-  { minute: 720, top: "#29B6F6", bottom: "#0288D1" },
-  { minute: 840, top: "#0288D1", bottom: "#42A5F5" },
-  { minute: 990, top: "#42A5F5", bottom: "#FFB347" },
-  { minute: 1050, top: "#FFB347", bottom: "#FF6F61" },
-  { minute: 1110, top: "#FF6F61", bottom: "#6A4C93" },
-  { minute: 1170, top: "#6A4C93", bottom: "#283593" },
-  { minute: 1260, top: "#283593", bottom: "#020617" },
-  { minute: 1440, top: "#020617", bottom: "#020617" },
+  // 🌙 Deep Night
+  {
+    minute: 0,
+    top: "#020617",
+    bottom: "#020617",
+  },
+
+  // 🌌 Pre Sunrise / Blue Hour
+  {
+    minute: 240,
+    top: "#020617",
+    bottom: "#111827",
+  },
+  {
+    minute: 270,
+    top: "#111827",
+    bottom: "#312E81",
+  },
+  {
+    minute: 300,
+    top: "#312E81",
+    bottom: "#6B5B95",
+  },
+
+  // 🌅 Sunrise
+{
+  minute: 330,
+  top: "#4B3B78",
+  bottom: "#FF7A45",
+},
+
+{
+  minute: 360,
+  top: "#FF7A45",
+  bottom: "#FFD166",
+},
+
+{
+  minute: 390,
+  top: "#FFD166",
+  bottom: "#B8E3FF",
+},
+
+
+// 🌤 Morning
+{
+  minute: 420,
+  top: "#B8E3FF",
+  bottom: "#4FA3FF",
+},
+
+{
+  minute: 480,
+  top: "#4FA3FF",
+  bottom: "#1687FF",
+},
+
+{
+  minute: 540,
+  top: "#1687FF",
+  bottom: "#0077E6",
+},
+
+
+// ☀️ Late Morning
+{
+  minute: 600,
+  top: "#0077E6",
+  bottom: "#0066CC",
+},
+
+
+// 🌞 Noon
+{
+  minute: 660,
+  top: "#0066CC",
+  bottom: "#0055AA",
+},
+
+{
+  minute: 720,
+  top: "#0055AA",
+  bottom: "#0088FF",
+},
+
+
+// 🌤 Afternoon
+{
+  minute: 780,
+  top: "#0088FF",
+  bottom: "#3399FF",
+},
+
+{
+  minute: 840,
+  top: "#3399FF",
+  bottom: "#87CEFA",
+},
+
+
+// 🌇 Late Afternoon
+{
+  minute: 900,
+  top: "#87CEFA",
+  bottom: "#FFD27F",
+},
+
+
+// 🌇 Golden Hour
+{
+  minute: 960,
+  top: "#FFD27F",
+  bottom: "#FFB347",
+},
+
+{
+  minute: 1020,
+  top: "#FFB347",
+  bottom: "#FF7043",
+},
+
+  // 🌅 Sunset
+  {
+    minute: 1050,
+    top: "#FFB347",
+    bottom: "#FF8A65",
+  },
+  {
+    minute: 1080,
+    top: "#FF8A65",
+    bottom: "#FF7043",
+  },
+  {
+    minute: 1110,
+    top: "#FF7043",
+    bottom: "#FF6F91",
+  },
+
+  // 🌆 Twilight
+  {
+    minute: 1140,
+    top: "#FF6F91",
+    bottom: "#9C5C9E",
+  },
+  {
+    minute: 1170,
+    top: "#9C5C9E",
+    bottom: "#6A4C93",
+  },
+  {
+    minute: 1200,
+    top: "#6A4C93",
+    bottom: "#283593",
+  },
+
+  // 🌙 Night
+  {
+    minute: 1260,
+    top: "#283593",
+    bottom: "#020617",
+  },
+  {
+    minute: 1380,
+    top: "#020617",
+    bottom: "#020617",
+  },
+
+  {
+    minute: 1440,
+    top: "#020617",
+    bottom: "#020617",
+  },
 ];
 
 const GMT_OFFSETS = Array.from({ length: 27 }, (_, index) => index - 12);
@@ -255,11 +411,13 @@ function getSkyGradient(date: Date, gmtOffset: number) {
     minute,
     top,
     bottom,
-    css: `linear-gradient(
-      180deg,
-      ${top} 0%,
-      ${bottom} 100%
-    )`,
+    css:
+`linear-gradient(
+180deg,
+${top} 0%,
+${interpolateHex(top,bottom,0.35)} 45%,
+${bottom} 100%
+)`,
   };
 }
 
@@ -1219,7 +1377,9 @@ export default function DashboardPage() {
         className="pointer-events-none fixed inset-0 transition-[background] duration-1000 ease-linear"
         style={{
           background: sky.css,
-          opacity: darkMode ? 0.58 : 0.34,
+          opacity: darkMode
+ ? 0.85
+ : 0.90,
           mixBlendMode: darkMode ? "normal" : "soft-light",
         }}
       />
