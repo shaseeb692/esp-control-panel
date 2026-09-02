@@ -33,6 +33,7 @@ import {
   SunMedium,
   Clock3,
   Settings2,
+  RefreshCw,
 } from "lucide-react";
 
 type House = {
@@ -44,14 +45,45 @@ type House = {
 type WeatherData = {
   temperature: number;
   apparentTemperature: number;
+  highTemperature: number;
+  lowTemperature: number;
+  dewPoint: number;
   humidity: number;
+
   precipitation: number;
+  rainfallAmount: number;
+  snowfallDepthCm: number;
+  precipitationRateMmH: number;
+  precipitationChance: number;
+
   weatherCode: number;
   windSpeed: number;
+  windGusts: number;
+  windDirection: number;
+  pressureHpa: number;
+
+  visibilityMeters: number;
+  cloudCover: number;
+  uvIndex: number;
+
   isDay: boolean;
   sunrise: string;
   sunset: string;
+  moonrise: string;
+  moonset: string;
+  moonPhase: number | null;
+
   city: string;
+  country: string;
+  timezone: string;
+
+  aqi: number | null;
+  pm25: number | null;
+  pm10: number | null;
+  ozoneUgM3: number | null;
+  no2UgM3: number | null;
+  coUgM3: number | null;
+  so2UgM3: number | null;
 };
 
 type RoomLoad = {
@@ -59,10 +91,201 @@ type RoomLoad = {
   watts: number;
 };
 
+type TemperatureUnit = "C" | "F";
+type WindUnit = "km/h" | "mph" | "m/s" | "knots";
+type PrecipitationUnit = "mm" | "in";
+type SnowUnit = "cm" | "in";
+type PressureUnit = "hPa" | "mb" | "inHg";
+type VisibilityUnit = "km" | "mi";
+type TimeFormat = "12h" | "24h";
+type OzoneUnit = "ppb" | "ug/m3";
+type COUnit = "ppm" | "mg/m3";
+
+type WeatherLocation = {
+  name: string;
+  country?: string;
+  latitude: number;
+  longitude: number;
+  timezone?: string;
+  auto?: boolean;
+};
+
+type CitySearchResult = {
+  id: number;
+  name: string;
+  latitude: number;
+  longitude: number;
+  country?: string;
+  admin1?: string;
+  timezone?: string;
+};
+
 type ThemeMode = "manual-dark" | "manual-light" | "auto";
 
 const DEFAULT_BACKGROUND =
   "https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=2400&q=85";
+
+function convertTemperature(value: number, unit: TemperatureUnit) {
+  return unit === "F" ? (value * 9) / 5 + 32 : value;
+}
+
+function convertWindSpeed(valueKmh: number, unit: WindUnit) {
+  switch (unit) {
+    case "mph":
+      return valueKmh * 0.621371;
+    case "m/s":
+      return valueKmh / 3.6;
+    case "knots":
+      return valueKmh * 0.539957;
+    default:
+      return valueKmh;
+  }
+}
+
+function convertPrecipitation(valueMm: number, unit: PrecipitationUnit) {
+  return unit === "in" ? valueMm / 25.4 : valueMm;
+}
+
+function convertSnow(valueCm: number, unit: SnowUnit) {
+  return unit === "in" ? valueCm / 2.54 : valueCm;
+}
+
+function convertPressure(valueHpa: number, unit: PressureUnit) {
+  if (unit === "inHg") return valueHpa * 0.0295299830714;
+  return valueHpa;
+}
+
+function convertVisibility(valueMeters: number, unit: VisibilityUnit) {
+  return unit === "mi" ? valueMeters / 1609.344 : valueMeters / 1000;
+}
+
+function windDirectionLabel(degrees: number) {
+  const labels = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const normalized = ((degrees % 360) + 360) % 360;
+  return labels[Math.round(normalized / 45) % 8];
+}
+
+function aqiLabel(value: number | null) {
+  if (value == null || Number.isNaN(value)) return "Unavailable";
+  if (value <= 50) return "Good";
+  if (value <= 100) return "Moderate";
+  if (value <= 150) return "Unhealthy for sensitive groups";
+  if (value <= 200) return "Unhealthy";
+  if (value <= 300) return "Very unhealthy";
+  return "Hazardous";
+}
+
+function ozoneToPpb(ugM3: number) {
+  return ugM3 * (24.45 / 48);
+}
+
+function no2ToPpb(ugM3: number) {
+  return ugM3 * (24.45 / 46.0055);
+}
+
+function so2ToPpb(ugM3: number) {
+  return ugM3 * (24.45 / 64.066);
+}
+
+function coToMgM3(ugM3: number) {
+  return ugM3 / 1000;
+}
+
+function coToPpm(ugM3: number) {
+  const mgM3 = coToMgM3(ugM3);
+  return mgM3 * (24.45 / 28.01);
+}
+
+function formatWeatherTime(value: string, format: TimeFormat) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    const timePart = value.includes("T") ? value.split("T")[1] : value;
+    if (format === "24h") return timePart?.slice(0, 5) || "—";
+
+    const [hoursRaw, minutes = "00"] = (timePart || "").split(":");
+    const hours = Number(hoursRaw);
+
+    if (!Number.isFinite(hours)) return value;
+
+    const period = hours >= 12 ? "PM" : "AM";
+    const hour12 = hours % 12 || 12;
+
+    return `${hour12}:${minutes} ${period}`;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: format === "12h",
+  }).format(date);
+}
+
+function moonPhaseLabel(value: number | null) {
+  if (value == null || Number.isNaN(value)) return "Unavailable";
+
+  let phase = value;
+
+  if (phase > 1) {
+    phase = phase <= 100 ? phase / 100 : phase / 360;
+  }
+
+  phase = ((phase % 1) + 1) % 1;
+
+  if (phase < 0.03 || phase >= 0.97) return "New Moon";
+  if (phase < 0.22) return "Waxing Crescent";
+  if (phase < 0.28) return "First Quarter";
+  if (phase < 0.47) return "Waxing Gibbous";
+  if (phase < 0.53) return "Full Moon";
+  if (phase < 0.72) return "Waning Gibbous";
+  if (phase < 0.78) return "Last Quarter";
+  return "Waning Crescent";
+}
+
+function formatMetric(value: number | null | undefined, digits = 1) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return Number(value).toFixed(digits);
+}
+
+function formatShortWeatherTime(value: string) {
+  if (!value) return "—";
+
+  const timePart = value.includes("T") ? value.split("T")[1] : value;
+  const [hoursRaw, minutes = "00"] = timePart.split(":");
+  const hours = Number(hoursRaw);
+
+  if (!Number.isFinite(hours)) return "—";
+
+  const period = hours >= 12 ? "PM" : "AM";
+  const hour12 = hours % 12 || 12;
+
+  return `${hour12}:${minutes} ${period}`;
+}
+
+function getDayDuration(sunrise: string, sunset: string) {
+  if (!sunrise || !sunset) return "—";
+
+  const parseMinutes = (value: string) => {
+    const timePart = value.includes("T") ? value.split("T")[1] : value;
+    const [hoursRaw, minutesRaw = "0"] = timePart.split(":");
+    return Number(hoursRaw) * 60 + Number(minutesRaw);
+  };
+
+  const start = parseMinutes(sunrise);
+  const end = parseMinutes(sunset);
+
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return "—";
+  }
+
+  const total = end - start;
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
+
+  return `${hours}h ${minutes}m`;
+}
 
 function getWeatherInfo(code: number) {
   if (code === 0) {
@@ -113,7 +336,15 @@ function getWeatherInfo(code: number) {
   };
 }
 
-function WeatherIcon({ code, size = 42 }: { code: number; size?: number }) {
+function WeatherIcon({
+  code,
+  size = 42,
+  isDay = true,
+}: {
+  code: number;
+  size?: number;
+  isDay?: boolean;
+}) {
   const info = getWeatherInfo(code);
 
   if (info.type === "rain") {
@@ -129,7 +360,7 @@ function WeatherIcon({ code, size = 42 }: { code: number; size?: number }) {
   }
 
   if (info.type === "clear") {
-    return <Sun size={size} />;
+    return isDay ? <Sun size={size} /> : <MoonStar size={size} />;
   }
 
   return <CloudSun size={size} />;
@@ -553,6 +784,39 @@ export default function DashboardPage() {
 
   const [weatherLoading, setWeatherLoading] = useState(true);
 
+  const [temperatureUnit, setTemperatureUnit] = useState<TemperatureUnit>("C");
+  const [windUnit, setWindUnit] = useState<WindUnit>("km/h");
+  const [precipitationUnit, setPrecipitationUnit] =
+    useState<PrecipitationUnit>("mm");
+  const [snowUnit, setSnowUnit] = useState<SnowUnit>("cm");
+  const [pressureUnit, setPressureUnit] = useState<PressureUnit>("hPa");
+  const [visibilityUnit, setVisibilityUnit] =
+    useState<VisibilityUnit>("km");
+  const [timeFormat, setTimeFormat] = useState<TimeFormat>("24h");
+  const [ozoneUnit, setOzoneUnit] = useState<OzoneUnit>("ppb");
+  const [coUnit, setCoUnit] = useState<COUnit>("ppm");
+
+  const [showWeatherSettings, setShowWeatherSettings] = useState(false);
+  const [rainEffectsEnabled, setRainEffectsEnabled] = useState(true);
+  const [snowEffectsEnabled, setSnowEffectsEnabled] = useState(true);
+
+  const AUTO_WEATHER_LOCATION: WeatherLocation = {
+    name: "Auto Location",
+    latitude: 24.8607,
+    longitude: 67.0011,
+    auto: true,
+  };
+
+  const [weatherLocation, setWeatherLocation] =
+    useState<WeatherLocation>(AUTO_WEATHER_LOCATION);
+  const [pendingWeatherLocation, setPendingWeatherLocation] =
+    useState<WeatherLocation>(AUTO_WEATHER_LOCATION);
+
+  const [weatherCitySearch, setWeatherCitySearch] = useState("");
+  const [citySearchResults, setCitySearchResults] =
+    useState<CitySearchResult[]>([]);
+  const [citySearchLoading, setCitySearchLoading] = useState(false);
+
   const [roomLoads, setRoomLoads] = useState<RoomLoad[]>([]);
 
   const [thisMonthKwh, setThisMonthKwh] = useState(0);
@@ -739,6 +1003,187 @@ export default function DashboardPage() {
   const isAutoMode = themeMode === "auto";
 
   // =====================================================
+  // WEATHER SETTINGS + GLOBAL CITY SEARCH
+  // =====================================================
+
+  useEffect(() => {
+    const raw =
+      localStorage.getItem("smart-weather-settings-v3") ||
+      localStorage.getItem("weather-settings");
+
+    if (!raw) {
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const america = timezone.startsWith("America/");
+
+      if (america) {
+        setTemperatureUnit("F");
+        setWindUnit("mph");
+        setPrecipitationUnit("in");
+        setSnowUnit("in");
+        setPressureUnit("inHg");
+        setVisibilityUnit("mi");
+        setTimeFormat("12h");
+      }
+
+      return;
+    }
+
+    try {
+      const saved = JSON.parse(raw);
+
+      if (saved.temperatureUnit === "C" || saved.temperatureUnit === "F") {
+        setTemperatureUnit(saved.temperatureUnit);
+      }
+
+      if (
+        saved.windUnit === "km/h" ||
+        saved.windUnit === "mph" ||
+        saved.windUnit === "m/s" ||
+        saved.windUnit === "knots"
+      ) {
+        setWindUnit(saved.windUnit);
+      }
+
+      if (saved.precipitationUnit === "mm" || saved.precipitationUnit === "in") {
+        setPrecipitationUnit(saved.precipitationUnit);
+      }
+
+      if (saved.snowUnit === "cm" || saved.snowUnit === "in") {
+        setSnowUnit(saved.snowUnit);
+      }
+
+      if (
+        saved.pressureUnit === "hPa" ||
+        saved.pressureUnit === "mb" ||
+        saved.pressureUnit === "inHg"
+      ) {
+        setPressureUnit(saved.pressureUnit);
+      }
+
+      if (saved.visibilityUnit === "km" || saved.visibilityUnit === "mi") {
+        setVisibilityUnit(saved.visibilityUnit);
+      }
+
+      if (saved.timeFormat === "12h" || saved.timeFormat === "24h") {
+        setTimeFormat(saved.timeFormat);
+      }
+
+      if (saved.ozoneUnit === "ppb" || saved.ozoneUnit === "ug/m3") {
+        setOzoneUnit(saved.ozoneUnit);
+      }
+
+      if (saved.coUnit === "ppm" || saved.coUnit === "mg/m3") {
+        setCoUnit(saved.coUnit);
+      }
+
+      if (typeof saved.rainEffectsEnabled === "boolean") {
+        setRainEffectsEnabled(saved.rainEffectsEnabled);
+      }
+
+      if (typeof saved.snowEffectsEnabled === "boolean") {
+        setSnowEffectsEnabled(saved.snowEffectsEnabled);
+      }
+
+      if (
+        saved.location &&
+        typeof saved.location.name === "string" &&
+        typeof saved.location.latitude === "number" &&
+        typeof saved.location.longitude === "number"
+      ) {
+        setWeatherLocation(saved.location);
+        setPendingWeatherLocation(saved.location);
+
+        window.setTimeout(() => {
+          loadWeather(saved.location);
+        }, 0);
+      }
+    } catch (error) {
+      console.error("Could not read weather settings", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!showWeatherSettings) return;
+
+    const query = weatherCitySearch.trim();
+
+    if (query.length < 2) {
+      setCitySearchResults([]);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    const timeout = window.setTimeout(async () => {
+      try {
+        setCitySearchLoading(true);
+
+        const response = await fetch(
+          `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
+            query,
+          )}&count=10&language=en&format=json`,
+          {
+            signal: controller.signal,
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error("City search failed");
+        }
+
+        const data = await response.json();
+
+        setCitySearchResults(data.results ?? []);
+      } catch (error) {
+        if ((error as Error).name !== "AbortError") {
+          console.error("City search error:", error);
+          setCitySearchResults([]);
+        }
+      } finally {
+        setCitySearchLoading(false);
+      }
+    }, 350);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [weatherCitySearch, showWeatherSettings]);
+
+  function openWeatherSettings() {
+    setPendingWeatherLocation(weatherLocation);
+    setWeatherCitySearch("");
+    setCitySearchResults([]);
+    setShowWeatherSettings(true);
+  }
+
+  async function applyWeatherSettings() {
+    setWeatherLocation(pendingWeatherLocation);
+
+    localStorage.setItem(
+      "smart-weather-settings-v3",
+      JSON.stringify({
+        location: pendingWeatherLocation,
+        temperatureUnit,
+        windUnit,
+        precipitationUnit,
+        snowUnit,
+        pressureUnit,
+        visibilityUnit,
+        timeFormat,
+        ozoneUnit,
+        coUnit,
+        rainEffectsEnabled,
+        snowEffectsEnabled,
+      }),
+    );
+
+    setShowWeatherSettings(false);
+
+    await loadWeather(pendingWeatherLocation);
+  }
+
+  // =====================================================
   // LOAD DASHBOARD
   // =====================================================
 
@@ -868,91 +1313,175 @@ export default function DashboardPage() {
   // WEATHER
   // =====================================================
 
-  async function loadWeather() {
+  async function loadWeather(locationOverride?: WeatherLocation) {
     try {
       setWeatherLoading(true);
 
-      let latitude = 24.8607;
-      let longitude = 67.0011;
-      let city = "Karachi";
+      const target = locationOverride ?? weatherLocation;
 
-      if (typeof navigator !== "undefined" && navigator.geolocation) {
+      let latitude = target.latitude;
+      let longitude = target.longitude;
+      let city = target.name;
+      let country = target.country ?? "";
+
+      if (target.auto && typeof navigator !== "undefined" && navigator.geolocation) {
         try {
           const position = await new Promise<GeolocationPosition>(
             (resolve, reject) => {
               navigator.geolocation.getCurrentPosition(resolve, reject, {
                 enableHighAccuracy: false,
-                timeout: 5000,
-                maximumAge: 30 * 60 * 1000,
+                timeout: 7000,
+                maximumAge: 15 * 60 * 1000,
               });
             },
           );
 
           latitude = position.coords.latitude;
-
           longitude = position.coords.longitude;
 
-          try {
-            const geoResponse = await fetch(
-              `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${latitude}&longitude=${longitude}&count=1&language=en&format=json`,
-            );
-
-            if (geoResponse.ok) {
-              const geoData = await geoResponse.json();
-
-              if (geoData?.results?.[0]?.name) {
-                city = geoData.results[0].name;
-              }
-            }
-          } catch {}
-        } catch {}
+          city = "Current Location";
+          country = "";
+        } catch {
+          city = "Karachi";
+          country = "Pakistan";
+          latitude = 24.8607;
+          longitude = 67.0011;
+        }
       }
 
-      const response = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,is_day&daily=sunrise,sunset&forecast_days=1&timezone=auto`,
-      );
+      const weatherUrl =
+        `https://api.open-meteo.com/v1/forecast` +
+        `?latitude=${latitude}` +
+        `&longitude=${longitude}` +
+        `&current=temperature_2m,relative_humidity_2m,apparent_temperature,dew_point_2m,precipitation,precipitation_probability,rain,snowfall,snow_depth,weather_code,cloud_cover,surface_pressure,visibility,uv_index,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day` +
+        `&daily=temperature_2m_max,temperature_2m_min,rain_sum,snowfall_sum,precipitation_probability_max,uv_index_max,sunrise,sunset,moonrise,moonset,moon_phase` +
+        `&forecast_days=1&timezone=auto`;
 
-      if (!response.ok) {
+      const airQualityUrl =
+        `https://air-quality-api.open-meteo.com/v1/air-quality` +
+        `?latitude=${latitude}` +
+        `&longitude=${longitude}` +
+        `&current=us_aqi,pm2_5,pm10,ozone,nitrogen_dioxide,carbon_monoxide,sulphur_dioxide` +
+        `&timezone=auto`;
+
+      const [weatherResponse, airResponse] = await Promise.all([
+        fetch(weatherUrl),
+        fetch(airQualityUrl),
+      ]);
+
+      if (!weatherResponse.ok) {
         throw new Error("Weather request failed");
       }
 
-      const data = await response.json();
+      const data = await weatherResponse.json();
 
-      const sunrise = data.daily?.sunrise?.[0] ?? "";
+      let airData: any = null;
 
-      const sunset = data.daily?.sunset?.[0] ?? "";
+      if (airResponse.ok) {
+        try {
+          airData = await airResponse.json();
+        } catch {
+          airData = null;
+        }
+      }
+
+      const intervalSeconds = Number(data.current?.interval ?? 3600);
+      const currentPrecipitation = Number(data.current?.precipitation ?? 0);
+      const precipitationRateMmH =
+        intervalSeconds > 0
+          ? currentPrecipitation * (3600 / intervalSeconds)
+          : currentPrecipitation;
+
+      const snowDepthMeters = Number(data.current?.snow_depth ?? 0);
 
       setWeather({
-        temperature: data.current.temperature_2m,
+        temperature: Number(data.current?.temperature_2m ?? 0),
+        apparentTemperature: Number(data.current?.apparent_temperature ?? 0),
+        highTemperature: Number(data.daily?.temperature_2m_max?.[0] ?? 0),
+        lowTemperature: Number(data.daily?.temperature_2m_min?.[0] ?? 0),
+        dewPoint: Number(data.current?.dew_point_2m ?? 0),
+        humidity: Number(data.current?.relative_humidity_2m ?? 0),
 
-        apparentTemperature: data.current.apparent_temperature,
+        precipitation: currentPrecipitation,
+        rainfallAmount: Number(data.daily?.rain_sum?.[0] ?? data.current?.rain ?? 0),
+        snowfallDepthCm: snowDepthMeters * 100,
+        precipitationRateMmH,
+        precipitationChance: Number(
+          data.current?.precipitation_probability ??
+            data.daily?.precipitation_probability_max?.[0] ??
+            0,
+        ),
 
-        humidity: data.current.relative_humidity_2m,
+        weatherCode: Number(data.current?.weather_code ?? 0),
+        windSpeed: Number(data.current?.wind_speed_10m ?? 0),
+        windGusts: Number(data.current?.wind_gusts_10m ?? 0),
+        windDirection: Number(data.current?.wind_direction_10m ?? 0),
+        pressureHpa: Number(data.current?.surface_pressure ?? 0),
 
-        precipitation: data.current.precipitation,
+        visibilityMeters: Number(data.current?.visibility ?? 0),
+        cloudCover: Number(data.current?.cloud_cover ?? 0),
+        uvIndex: Number(
+          data.current?.uv_index ?? data.daily?.uv_index_max?.[0] ?? 0,
+        ),
 
-        weatherCode: data.current.weather_code,
+        isDay: Number(data.current?.is_day ?? 1) === 1,
+        sunrise: data.daily?.sunrise?.[0] ?? "",
+        sunset: data.daily?.sunset?.[0] ?? "",
+        moonrise: data.daily?.moonrise?.[0] ?? "",
+        moonset: data.daily?.moonset?.[0] ?? "",
+        moonPhase:
+          data.daily?.moon_phase?.[0] == null
+            ? null
+            : Number(data.daily.moon_phase[0]),
 
-        windSpeed: data.current.wind_speed_10m,
-
-        isDay: data.current.is_day === 1,
-
-        sunrise,
-        sunset,
         city,
+        country,
+        timezone: data.timezone ?? target.timezone ?? "",
+
+        aqi:
+          airData?.current?.us_aqi == null
+            ? null
+            : Number(airData.current.us_aqi),
+        pm25:
+          airData?.current?.pm2_5 == null
+            ? null
+            : Number(airData.current.pm2_5),
+        pm10:
+          airData?.current?.pm10 == null
+            ? null
+            : Number(airData.current.pm10),
+        ozoneUgM3:
+          airData?.current?.ozone == null
+            ? null
+            : Number(airData.current.ozone),
+        no2UgM3:
+          airData?.current?.nitrogen_dioxide == null
+            ? null
+            : Number(airData.current.nitrogen_dioxide),
+        coUgM3:
+          airData?.current?.carbon_monoxide == null
+            ? null
+            : Number(airData.current.carbon_monoxide),
+        so2UgM3:
+          airData?.current?.sulphur_dioxide == null
+            ? null
+            : Number(airData.current.sulphur_dioxide),
       });
     } catch (err) {
       console.error("Weather error:", err);
+      setError("Could not load weather for the selected location.");
     } finally {
       setWeatherLoading(false);
     }
   }
 
   useEffect(() => {
-    const interval = window.setInterval(loadWeather, 60 * 1000);
+    const interval = window.setInterval(() => {
+      loadWeather(weatherLocation);
+    }, 60 * 1000);
 
     return () => window.clearInterval(interval);
-  }, []);
+  }, [weatherLocation]);
 
   // =====================================================
   // ENERGY
@@ -1316,6 +1845,74 @@ export default function DashboardPage() {
   const clockTime = formatClockTime(currentTime, gmtOffset);
   const clockDate = getClockDateParts(currentTime, gmtOffset);
 
+  const displayTemperature = weather
+    ? convertTemperature(weather.temperature, temperatureUnit)
+    : 0;
+
+  const displayFeelsLike = weather
+    ? convertTemperature(weather.apparentTemperature, temperatureUnit)
+    : 0;
+
+  const displayWindSpeed = weather
+    ? convertWindSpeed(weather.windSpeed, windUnit)
+    : 0;
+
+  const displayWindGust = weather
+    ? convertWindSpeed(weather.windGusts, windUnit)
+    : 0;
+
+  const displayRainfall = weather
+    ? convertPrecipitation(weather.rainfallAmount, precipitationUnit)
+    : 0;
+
+  const displayPrecipitationRate = weather
+    ? convertPrecipitation(weather.precipitationRateMmH, precipitationUnit)
+    : 0;
+
+  const displaySnowDepth = weather
+    ? convertSnow(weather.snowfallDepthCm, snowUnit)
+    : 0;
+
+  const displayPressure = weather
+    ? convertPressure(weather.pressureHpa, pressureUnit)
+    : 0;
+
+  const displayVisibility = weather
+    ? convertVisibility(weather.visibilityMeters, visibilityUnit)
+    : 0;
+
+  const displayHighTemperature = weather
+    ? convertTemperature(weather.highTemperature, temperatureUnit)
+    : 0;
+
+  const displayLowTemperature = weather
+    ? convertTemperature(weather.lowTemperature, temperatureUnit)
+    : 0;
+
+  const displayDewPoint = weather
+    ? convertTemperature(weather.dewPoint, temperatureUnit)
+    : 0;
+
+  const displayOzone =
+    weather?.ozoneUgM3 == null
+      ? null
+      : ozoneUnit === "ppb"
+        ? ozoneToPpb(weather.ozoneUgM3)
+        : weather.ozoneUgM3;
+
+  const displayNo2 =
+    weather?.no2UgM3 == null ? null : no2ToPpb(weather.no2UgM3);
+
+  const displaySo2 =
+    weather?.so2UgM3 == null ? null : so2ToPpb(weather.so2UgM3);
+
+  const displayCO =
+    weather?.coUgM3 == null
+      ? null
+      : coUnit === "ppm"
+        ? coToPpm(weather.coUgM3)
+        : coToMgM3(weather.coUgM3);
+
   // =====================================================
   // LOADING
   // =====================================================
@@ -1380,7 +1977,7 @@ export default function DashboardPage() {
           opacity: darkMode
  ? 0.85
  : 0.90,
-          mixBlendMode: darkMode ? "normal" : "soft-light",
+          mixBlendMode: "normal",
         }}
       />
 
@@ -1457,7 +2054,7 @@ export default function DashboardPage() {
           RAIN
       ================================================= */}
 
-      {["rain", "storm"].includes(weatherType) && (
+      {rainEffectsEnabled && ["rain", "storm"].includes(weatherType) && (
         <div className="pointer-events-none fixed inset-0 overflow-hidden opacity-45">
           {Array.from({
             length: 90,
@@ -1472,6 +2069,25 @@ export default function DashboardPage() {
                 animationDelay: `${(index * 43) % 1000}ms`,
               }}
             />
+          ))}
+        </div>
+      )}
+
+
+      {snowEffectsEnabled && weatherType === "snow" && (
+        <div className="pointer-events-none fixed inset-0 overflow-hidden opacity-70">
+          {Array.from({ length: 55 }).map((_, index) => (
+            <span
+              key={index}
+              className="absolute -top-4 animate-[snowFall_7s_linear_infinite] text-white/80"
+              style={{
+                left: `${(index * 37) % 100}%`,
+                animationDelay: `${(index * 173) % 7000}ms`,
+                fontSize: `${8 + (index % 5) * 2}px`,
+              }}
+            >
+              •
+            </span>
           ))}
         </div>
       )}
@@ -1639,115 +2255,321 @@ export default function DashboardPage() {
             className={`rounded-[34px] border p-5 shadow-2xl backdrop-blur-2xl lg:col-span-2 ${glass}`}
           >
             <div className={`rounded-[26px] border p-5 ${glassSoft}`}>
-              <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div
-                    className={`inline-flex rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${muted} ${
-                      darkMode
-                        ? "border-white/10 bg-white/5"
-                        : "border-black/10 bg-black/5"
-                    }`}
-                  >
-                    Current weather
+              <div className="flex items-center justify-between gap-5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div
+                      className={`inline-flex rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${muted} ${
+                        darkMode
+                          ? "border-white/10 bg-white/5"
+                          : "border-black/10 bg-black/5"
+                      }`}
+                    >
+                      Current weather
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigateWithTransition(() => router.push("/weather"))
+                      }
+                      title="Open weather details"
+                      className={`inline-flex h-8 items-center justify-center gap-1 rounded-xl border px-3 text-[10px] font-semibold transition ${
+                        darkMode
+                          ? "border-white/10 bg-white/5 hover:bg-white/10"
+                          : "border-black/10 bg-white/40 hover:bg-white/70"
+                      }`}
+                    >
+                      <Settings2 size={13} />
+                      Details
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => loadWeather(weatherLocation)}
+                      disabled={weatherLoading}
+                      title="Refresh weather"
+                      className={`inline-flex h-8 w-8 items-center justify-center rounded-xl border transition disabled:opacity-50 ${
+                        darkMode
+                          ? "border-white/10 bg-white/5 hover:bg-white/10"
+                          : "border-black/10 bg-white/40 hover:bg-white/70"
+                      }`}
+                    >
+                      <RefreshCw
+                        size={13}
+                        className={weatherLoading ? "animate-spin" : ""}
+                      />
+                    </button>
                   </div>
 
                   {weatherLoading ? (
-                    <div className="mt-3 flex items-center gap-2">
+                    <div className="mt-4 flex items-center gap-2">
                       <Loader2 size={20} className="animate-spin" />
-
                       <span className={muted}>Loading weather...</span>
                     </div>
                   ) : weather ? (
                     <>
-                      <div className="mt-3 flex items-center gap-3">
-                        <span className="text-5xl font-semibold tracking-tight">
-                          {Math.round(weather.temperature)}°
+                      <div className="mt-4">
+                        <span className="text-6xl font-semibold tracking-tight sm:text-7xl">
+                          {Math.round(displayTemperature)}°{temperatureUnit}
                         </span>
-
-                        <WeatherIcon code={weather.weatherCode} size={45} />
                       </div>
 
-                      <p className={`mt-1 text-sm ${muted}`}>
+                      <p className={`mt-2 text-sm ${muted}`}>
                         {getWeatherInfo(weather.weatherCode).label}
                       </p>
+
+                      <div
+                        className={`mt-2 flex items-center gap-1 text-xs ${muted}`}
+                      >
+                        <MapPin size={12} />
+                        {weather.city}
+                        {weather.country ? `, ${weather.country}` : ""}
+                      </div>
                     </>
                   ) : (
-                    <p className={`mt-3 text-sm ${muted}`}>
+                    <p className={`mt-4 text-sm ${muted}`}>
                       Weather unavailable
                     </p>
                   )}
                 </div>
 
                 {weather && (
-                  <div className="text-left sm:text-right">
-                    <p className={`text-xs ${muted}`}>Feels like</p>
-
-                    <p className="mt-1 text-2xl font-semibold">
-                      {Math.round(weather.apparentTemperature)}°
-                    </p>
-
-                    <div
-                      className={`mt-2 flex items-center gap-1 text-xs ${muted} sm:justify-end`}
-                    >
-                      <MapPin size={12} />
-
-                      {weather.city}
-                    </div>
+                  <div
+                    className={`flex h-28 w-28 shrink-0 items-center justify-center rounded-[30px] border shadow-xl backdrop-blur-xl sm:h-36 sm:w-36 ${
+                      darkMode
+                        ? "border-white/10 bg-white/[0.06]"
+                        : "border-black/10 bg-white/50"
+                    } ${
+                      weatherType === "clear"
+                        ? weather.isDay
+                          ? "text-amber-300"
+                          : "text-indigo-200"
+                        : weatherType === "rain"
+                          ? "text-sky-300"
+                          : weatherType === "storm"
+                            ? "text-violet-300"
+                            : weatherType === "snow"
+                              ? "text-cyan-100"
+                              : "text-sky-200"
+                    }`}
+                  >
+                    <WeatherIcon
+                      code={weather.weatherCode}
+                      size={82}
+                      isDay={weather.isDay}
+                    />
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-3 gap-3">
-              {/* HUMIDITY */}
+            {weather && (
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                {/* B1 — FEELS LIKE + WIND + AQI */}
+                <div className={`rounded-[22px] border p-4 ${glassSoft}`}>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <CloudSun
+                          size={17}
+                          className={darkMode ? "text-cyan-200" : "text-cyan-600"}
+                        />
+                        <span className={`text-[11px] ${muted}`}>Feels Like</span>
+                      </div>
 
-              <div
-                className={`flex min-h-[130px] flex-col items-center justify-center rounded-[24px] border p-3 ${glassSoft}`}
-              >
-                <HumidityGauge
-                  value={weather?.humidity ?? 0}
-                  darkMode={darkMode}
-                />
+                      <span className="text-sm font-semibold">
+                        {formatMetric(displayFeelsLike, 1)}°{temperatureUnit}
+                      </span>
+                    </div>
 
-                <p className={`mt-1 text-xs font-medium ${muted}`}>Humidity</p>
+                    <div
+                      className={`h-px ${
+                        darkMode ? "bg-white/10" : "bg-black/10"
+                      }`}
+                    />
+
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <Wind
+                          size={17}
+                          className={darkMode ? "text-cyan-200" : "text-cyan-600"}
+                        />
+                        <span className={`text-[11px] ${muted}`}>Wind</span>
+                      </div>
+
+                      <span className="text-sm font-semibold">
+                        {formatMetric(displayWindSpeed, 1)}{" "}
+                        <span className={`text-[10px] font-normal ${muted}`}>
+                          {windUnit === "knots" ? "kt" : windUnit}
+                        </span>
+                      </span>
+                    </div>
+
+                    <div
+                      className={`h-px ${
+                        darkMode ? "bg-white/10" : "bg-black/10"
+                      }`}
+                    />
+
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <BarChart3
+                          size={17}
+                          className={darkMode ? "text-cyan-200" : "text-cyan-600"}
+                        />
+                        <span className={`text-[11px] ${muted}`}>AQI</span>
+                      </div>
+
+                      <span className="text-sm font-semibold">
+                        {weather.aqi == null ? "—" : Math.round(weather.aqi)}
+                        <span className={`ml-1 text-[10px] font-normal ${muted}`}>
+                          {aqiLabel(weather.aqi)}
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* B2 — HUMIDITY + HI/LOW + RAIN/SNOW */}
+                <div className={`rounded-[22px] border p-4 ${glassSoft}`}>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <Droplets
+                          size={17}
+                          className={darkMode ? "text-cyan-200" : "text-cyan-600"}
+                        />
+                        <span className={`text-[11px] ${muted}`}>Humidity</span>
+                      </div>
+
+                      <span className="text-sm font-semibold">
+                        {Math.round(weather.humidity)}%
+                      </span>
+                    </div>
+
+                    <div
+                      className={`h-px ${
+                        darkMode ? "bg-white/10" : "bg-black/10"
+                      }`}
+                    />
+
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <Sun
+                          size={17}
+                          className={darkMode ? "text-amber-200" : "text-amber-600"}
+                        />
+                        <span className={`text-[11px] ${muted}`}>High / Low</span>
+                      </div>
+
+                      <span className="text-sm font-semibold">
+                        {Math.round(displayHighTemperature)}°
+                        <span className={`mx-1 ${muted}`}>/</span>
+                        {Math.round(displayLowTemperature)}°
+                      </span>
+                    </div>
+
+                    <div
+                      className={`h-px ${
+                        darkMode ? "bg-white/10" : "bg-black/10"
+                      }`}
+                    />
+
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        {weatherType === "snow" ? (
+                          <CloudSnow
+                            size={17}
+                            className={darkMode ? "text-cyan-200" : "text-cyan-600"}
+                          />
+                        ) : (
+                          <CloudRain
+                            size={17}
+                            className={darkMode ? "text-cyan-200" : "text-cyan-600"}
+                          />
+                        )}
+
+                        <span className={`text-[11px] ${muted}`}>Rain / Snow</span>
+                      </div>
+
+                      <span className="text-sm font-semibold">
+                        {weatherType === "snow"
+                          ? `${formatMetric(displaySnowDepth, 1)} ${snowUnit}`
+                          : `${formatMetric(displayRainfall, 1)} ${precipitationUnit}`}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* B3 — DAY DURATION + SUNRISE + SUNSET */}
+                <div className={`rounded-[22px] border p-4 ${glassSoft}`}>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        {weather.isDay ? (
+                          <Sun
+                            size={17}
+                            className={darkMode ? "text-amber-200" : "text-amber-600"}
+                          />
+                        ) : (
+                          <MoonStar
+                            size={17}
+                            className={darkMode ? "text-indigo-200" : "text-indigo-600"}
+                          />
+                        )}
+
+                        <span className={`text-[11px] ${muted}`}>Day Duration</span>
+                      </div>
+
+                      <span className="text-sm font-semibold">
+                        {getDayDuration(weather.sunrise, weather.sunset)}
+                      </span>
+                    </div>
+
+                    <div
+                      className={`h-px ${
+                        darkMode ? "bg-white/10" : "bg-black/10"
+                      }`}
+                    />
+
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <Sun
+                          size={17}
+                          className={darkMode ? "text-yellow-200" : "text-yellow-600"}
+                        />
+                        <span className={`text-[11px] ${muted}`}>Sunrise</span>
+                      </div>
+
+                      <span className="text-sm font-semibold">
+                        {formatShortWeatherTime(weather.sunrise)}
+                      </span>
+                    </div>
+
+                    <div
+                      className={`h-px ${
+                        darkMode ? "bg-white/10" : "bg-black/10"
+                      }`}
+                    />
+
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <MoonStar
+                          size={17}
+                          className={darkMode ? "text-orange-200" : "text-orange-600"}
+                        />
+                        <span className={`text-[11px] ${muted}`}>Sunset</span>
+                      </div>
+
+                      <span className="text-sm font-semibold">
+                        {formatShortWeatherTime(weather.sunset)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
-
-              {/* WIND */}
-
-              <div
-                className={`flex min-h-[130px] flex-col justify-center rounded-[24px] border p-4 ${glassSoft}`}
-              >
-                <Wind
-                  size={20}
-                  className={darkMode ? "text-cyan-200" : "text-cyan-600"}
-                />
-
-                <p className={`mt-3 text-xs ${muted}`}>Wind</p>
-
-                <p className="mt-1 text-xl font-semibold">
-                  {weather ? Math.round(weather.windSpeed) : 0}{" "}
-                  <span className="text-xs font-normal opacity-60">km/h</span>
-                </p>
-              </div>
-
-              {/* RAIN */}
-
-              <div
-                className={`flex min-h-[130px] flex-col justify-center rounded-[24px] border p-4 ${glassSoft}`}
-              >
-                <CloudRain
-                  size={20}
-                  className={darkMode ? "text-cyan-200" : "text-cyan-600"}
-                />
-
-                <p className={`mt-3 text-xs ${muted}`}>Rain</p>
-
-                <p className="mt-1 text-xl font-semibold">
-                  {weather?.precipitation ?? 0}{" "}
-                  <span className="text-xs font-normal opacity-60">mm</span>
-                </p>
-              </div>
-            </div>
+            )}
           </div>
 
           {/* CONNECTED HOMES */}
@@ -2491,8 +3313,74 @@ export default function DashboardPage() {
             transform: translateY(115vh) rotate(15deg);
           }
         }
+
+        @keyframes snowFall {
+          0% {
+            transform: translateY(-20px) translateX(0);
+          }
+
+          50% {
+            transform: translateY(55vh) translateX(18px);
+          }
+
+          100% {
+            transform: translateY(115vh) translateX(-12px);
+          }
+        }
       `}</style>
     </main>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  muted,
+}: {
+  label: string;
+  value: string;
+  muted: string;
+}) {
+  return (
+    <div>
+      <p className={`text-[11px] ${muted}`}>{label}</p>
+      <p className="mt-1 font-semibold">{value}</p>
+    </div>
+  );
+}
+
+function SettingSelect({
+  label,
+  value,
+  onChange,
+  options,
+  darkMode,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: [string, string][];
+  darkMode: boolean;
+}) {
+  return (
+    <label className="block">
+      <span className="text-xs font-semibold">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`mt-2 w-full rounded-xl border px-3 py-2.5 text-sm outline-none ${
+          darkMode
+            ? "border-white/10 bg-slate-900 text-white"
+            : "border-black/10 bg-white text-black"
+        }`}
+      >
+        {options.map(([optionValue, optionLabel]) => (
+          <option key={optionValue} value={optionValue}>
+            {optionLabel}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
