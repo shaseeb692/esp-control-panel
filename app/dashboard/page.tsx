@@ -1093,9 +1093,7 @@ export default function DashboardPage() {
         setWeatherLocation(saved.location);
         setPendingWeatherLocation(saved.location);
 
-        window.setTimeout(() => {
-          loadWeather(saved.location);
-        }, 0);
+
       }
     } catch (error) {
       console.error("Could not read weather settings", error);
@@ -1181,6 +1179,37 @@ export default function DashboardPage() {
     setShowWeatherSettings(false);
 
     await loadWeather(pendingWeatherLocation);
+  }
+
+  function getSavedWeatherLocation(): WeatherLocation {
+    if (typeof window === "undefined") {
+      return weatherLocation;
+    }
+
+    try {
+      const raw =
+        localStorage.getItem("smart-weather-settings-v3") ||
+        localStorage.getItem("weather-settings");
+
+      if (!raw) {
+        return weatherLocation;
+      }
+
+      const saved = JSON.parse(raw);
+
+      if (
+        saved?.location &&
+        typeof saved.location.name === "string" &&
+        typeof saved.location.latitude === "number" &&
+        typeof saved.location.longitude === "number"
+      ) {
+        return saved.location as WeatherLocation;
+      }
+    } catch (error) {
+      console.error("Could not read saved weather location:", error);
+    }
+
+    return weatherLocation;
   }
 
   // =====================================================
@@ -1290,7 +1319,12 @@ export default function DashboardPage() {
         // WEATHER
         // =================================================
 
-        await loadWeather();
+        const savedWeatherLocation = getSavedWeatherLocation();
+
+        setWeatherLocation(savedWeatherLocation);
+        setPendingWeatherLocation(savedWeatherLocation);
+
+        await loadWeather(savedWeatherLocation);
 
         // =================================================
         // ENERGY
@@ -1317,7 +1351,17 @@ export default function DashboardPage() {
     try {
       setWeatherLoading(true);
 
-      const target = locationOverride ?? weatherLocation;
+      const target = locationOverride ?? getSavedWeatherLocation();
+
+      if (
+        target.name !== weatherLocation.name ||
+        target.latitude !== weatherLocation.latitude ||
+        target.longitude !== weatherLocation.longitude ||
+        target.auto !== weatherLocation.auto
+      ) {
+        setWeatherLocation(target);
+        setPendingWeatherLocation(target);
+      }
 
       let latitude = target.latitude;
       let longitude = target.longitude;
@@ -1476,12 +1520,24 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    const interval = window.setInterval(() => {
-      loadWeather(weatherLocation);
-    }, 60 * 1000);
+    const refreshWeatherFromSavedLocation = () => {
+      loadWeather();
+    };
 
-    return () => window.clearInterval(interval);
-  }, [weatherLocation]);
+    const interval = window.setInterval(
+      refreshWeatherFromSavedLocation,
+      60 * 1000,
+    );
+
+    window.addEventListener("focus", refreshWeatherFromSavedLocation);
+    window.addEventListener("pageshow", refreshWeatherFromSavedLocation);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshWeatherFromSavedLocation);
+      window.removeEventListener("pageshow", refreshWeatherFromSavedLocation);
+    };
+  }, []);
 
   // =====================================================
   // ENERGY
@@ -2286,7 +2342,7 @@ export default function DashboardPage() {
 
                     <button
                       type="button"
-                      onClick={() => loadWeather(weatherLocation)}
+                      onClick={() => loadWeather()}
                       disabled={weatherLoading}
                       title="Refresh weather"
                       className={`inline-flex h-8 w-8 items-center justify-center rounded-xl border transition disabled:opacity-50 ${
