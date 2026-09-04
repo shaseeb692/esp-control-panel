@@ -1,7 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import {
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+
+import {
+  useParams,
+  useRouter,
+} from "next/navigation";
 
 import {
   ArrowLeft,
@@ -19,6 +27,14 @@ import {
   Gauge,
   AlertTriangle,
   Send,
+  Shield,
+  ShieldAlert,
+  Lock,
+  Unlock,
+  Siren,
+  KeyRound,
+  Copy,
+  Check,
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
@@ -27,13 +43,11 @@ import { supabase } from "@/lib/supabase";
    THEME
 ===================================================== */
 
-const THEME_COLOR = "#42B8C5";
+const THEME_COLOR =
+  "#42B8C5";
 
-/* =====================================================
-   STATUS REQUEST TIMEOUT
-===================================================== */
-
-const STATUS_TIMEOUT_MS = 50_000;
+const STATUS_TIMEOUT_MS =
+  50_000;
 
 /* =====================================================
    TYPES
@@ -57,7 +71,10 @@ type Capability = {
   control_id: string;
   name: string;
   type: string;
-  config: Record<string, any> | null;
+  config: Record<
+    string,
+    any
+  > | null;
   created_at: string;
   sort_order: number;
   enabled: boolean;
@@ -66,7 +83,10 @@ type Capability = {
 type DeviceStatus = {
   id: number;
   device_id: string;
-  status_data: Record<string, any> | null;
+  status_data: Record<
+    string,
+    any
+  > | null;
   updated_at: string;
   online: boolean;
   last_seen_at: string | null;
@@ -77,138 +97,257 @@ type DeviceEvent = {
   device_id: string;
   control_id: string | null;
   event_type: string;
-  value: Record<string, any> | null;
+  value: Record<
+    string,
+    any
+  > | null;
   created_at: string;
   source: string | null;
 };
 
+type SecurityState =
+  | "active"
+  | "locked"
+  | "emergency_locked"
+  | "stolen"
+  | "lost";
+
+type RecoveryResponse = {
+  success?: boolean;
+  codes?: string[] | {
+    codes?: string[];
+  };
+  warning?: string;
+  error?: string;
+};
+
 /* =====================================================
-   MAIN PAGE
+   MAIN
 ===================================================== */
 
 export default function DevicePage() {
-  const router = useRouter();
-  const params = useParams();
+  const router =
+    useRouter();
+
+  const params =
+    useParams();
 
   const houseId =
-    typeof params.houseId === "string"
+    typeof params.houseId ===
+    "string"
       ? params.houseId
       : "";
 
   const roomId =
-    typeof params.roomId === "string"
+    typeof params.roomId ===
+    "string"
       ? params.roomId
       : "";
 
   const deviceId =
-    typeof params.deviceId === "string"
+    typeof params.deviceId ===
+    "string"
       ? params.deviceId
       : "";
 
-  /* =====================================================
+  /* ===================================================
      STATE
-  ===================================================== */
+  =================================================== */
 
   const [device, setDevice] =
-    useState<Device | null>(null);
+    useState<Device | null>(
+      null
+    );
 
-  const [capabilities, setCapabilities] =
-    useState<Capability[]>([]);
+  const [
+    capabilities,
+    setCapabilities,
+  ] = useState<
+    Capability[]
+  >([]);
 
   const [status, setStatus] =
-    useState<DeviceStatus | null>(null);
+    useState<DeviceStatus | null>(
+      null
+    );
 
   const [events, setEvents] =
-    useState<DeviceEvent[]>([]);
+    useState<DeviceEvent[]>(
+      []
+    );
 
   const [loading, setLoading] =
     useState(true);
 
-  const [refreshing, setRefreshing] =
-    useState(false);
+  const [
+    refreshing,
+    setRefreshing,
+  ] = useState(false);
 
-  const [sendingCommand, setSendingCommand] =
-    useState<string | null>(null);
+  const [
+    sendingCommand,
+    setSendingCommand,
+  ] = useState<string | null>(
+    null
+  );
 
   const [error, setError] =
     useState("");
 
-  const [commandMessage, setCommandMessage] =
-    useState("");
+  const [
+    commandMessage,
+    setCommandMessage,
+  ] = useState("");
 
-  const [controlValues, setControlValues] =
-    useState<Record<string, number>>({});
+  const [
+    controlValues,
+    setControlValues,
+  ] = useState<
+    Record<string, number>
+  >({});
 
-  /* =====================================================
-     STATUS REQUEST STATE
-  ===================================================== */
+  /* ===================================================
+     STATUS TIMER
+  =================================================== */
 
-  const [statusRequestWaiting, setStatusRequestWaiting] =
-    useState(false);
+  const [
+    statusRequestWaiting,
+    setStatusRequestWaiting,
+  ] = useState(false);
 
-  const [statusCountdown, setStatusCountdown] =
-    useState(0);
+  const [
+    statusCountdown,
+    setStatusCountdown,
+  ] = useState(0);
 
-  const [statusOfflineMessage, setStatusOfflineMessage] =
-    useState(false);
+  const [
+    statusOfflineMessage,
+    setStatusOfflineMessage,
+  ] = useState(false);
 
   const statusTimeoutRef =
-    useRef<ReturnType<typeof setTimeout> | null>(null);
+    useRef<ReturnType<
+      typeof setTimeout
+    > | null>(null);
 
   const statusCountdownRef =
-    useRef<ReturnType<typeof setInterval> | null>(null);
+    useRef<ReturnType<
+      typeof setInterval
+    > | null>(null);
 
   const statusRequestStartedAtRef =
-    useRef<number | null>(null);
+    useRef<number | null>(
+      null
+    );
 
-  const statusRequestStartedIsoRef =
-    useRef<string | null>(null);
+  /* ===================================================
+     SECURITY
+  =================================================== */
 
-  /* =====================================================
-     CLEAR STATUS WAIT
-  ===================================================== */
+  const [
+    securityState,
+    setSecurityState,
+  ] = useState<SecurityState>(
+    "active"
+  );
+
+  const [
+    securityReason,
+    setSecurityReason,
+  ] = useState<
+    string | null
+  >(null);
+
+  const [
+    securityLoading,
+    setSecurityLoading,
+  ] = useState(false);
+
+  const [
+    securityMessage,
+    setSecurityMessage,
+  ] = useState("");
+
+  const [
+    recoveryCodes,
+    setRecoveryCodes,
+  ] = useState<string[]>(
+    []
+  );
+
+  const [
+    recoveryLoading,
+    setRecoveryLoading,
+  ] = useState(false);
+
+  const [
+    copiedCode,
+    setCopiedCode,
+  ] = useState<
+    string | null
+  >(null);
+
+  /* ===================================================
+     CLEAR STATUS
+  =================================================== */
 
   function clearStatusWaiting() {
-    if (statusTimeoutRef.current) {
+    if (
+      statusTimeoutRef.current
+    ) {
       clearTimeout(
         statusTimeoutRef.current
       );
 
-      statusTimeoutRef.current = null;
+      statusTimeoutRef.current =
+        null;
     }
 
-    if (statusCountdownRef.current) {
+    if (
+      statusCountdownRef.current
+    ) {
       clearInterval(
         statusCountdownRef.current
       );
 
-      statusCountdownRef.current = null;
+      statusCountdownRef.current =
+        null;
     }
 
-    statusRequestStartedAtRef.current = null;
-    statusRequestStartedIsoRef.current = null;
+    statusRequestStartedAtRef.current =
+      null;
 
-    setStatusRequestWaiting(false);
+    setStatusRequestWaiting(
+      false
+    );
+
     setStatusCountdown(0);
-    setSendingCommand((current) =>
-      current === "__STATUS__"
-        ? null
-        : current
+
+    setSendingCommand(
+      (current) =>
+        current ===
+        "__STATUS__"
+          ? null
+          : current
     );
   }
 
-  /* =====================================================
-     START 50 SECOND STATUS TIMER
-  ===================================================== */
+  /* ===================================================
+     STATUS WAIT
+  =================================================== */
 
   function startStatusWaiting() {
-    if (statusTimeoutRef.current) {
+    if (
+      statusTimeoutRef.current
+    ) {
       clearTimeout(
         statusTimeoutRef.current
       );
     }
 
-    if (statusCountdownRef.current) {
+    if (
+      statusCountdownRef.current
+    ) {
       clearInterval(
         statusCountdownRef.current
       );
@@ -220,20 +359,22 @@ export default function DevicePage() {
     statusRequestStartedAtRef.current =
       startedAt;
 
-    statusRequestStartedIsoRef.current =
-      new Date(
-        startedAt
-      ).toISOString();
+    setStatusRequestWaiting(
+      true
+    );
 
-    setStatusRequestWaiting(true);
     setStatusCountdown(50);
-    setStatusOfflineMessage(false);
+
+    setStatusOfflineMessage(
+      false
+    );
 
     statusCountdownRef.current =
       setInterval(() => {
         const elapsed =
           Math.floor(
-            (Date.now() - startedAt) /
+            (Date.now() -
+              startedAt) /
               1000
           );
 
@@ -247,31 +388,38 @@ export default function DevicePage() {
           remaining
         );
 
-        if (remaining <= 0) {
-          if (
+        if (
+          remaining <= 0 &&
+          statusCountdownRef.current
+        ) {
+          clearInterval(
             statusCountdownRef.current
-          ) {
-            clearInterval(
-              statusCountdownRef.current
-            );
+          );
 
-            statusCountdownRef.current =
-              null;
-          }
+          statusCountdownRef.current =
+            null;
         }
       }, 1000);
 
     statusTimeoutRef.current =
       setTimeout(() => {
-        setStatusRequestWaiting(false);
-        setStatusCountdown(0);
-        setSendingCommand((current) =>
-          current === "__STATUS__"
-            ? null
-            : current
+        setStatusRequestWaiting(
+          false
         );
 
-        setStatusOfflineMessage(true);
+        setStatusCountdown(0);
+
+        setSendingCommand(
+          (current) =>
+            current ===
+            "__STATUS__"
+              ? null
+              : current
+        );
+
+        setStatusOfflineMessage(
+          true
+        );
 
         if (
           statusCountdownRef.current
@@ -289,40 +437,304 @@ export default function DevicePage() {
       }, STATUS_TIMEOUT_MS);
   }
 
-  /* =====================================================
-     CHECK FRESH STATUS RESPONSE
-  ===================================================== */
+  /* ===================================================
+     FRESH STATUS
+  =================================================== */
 
   function isFreshStatusResponse(
-    incomingStatus: DeviceStatus
+    incoming: DeviceStatus
   ) {
-    const requestStartedAt =
+    const started =
       statusRequestStartedAtRef.current;
 
-    if (!requestStartedAt) {
+    if (!started) {
       return false;
     }
 
-    const updatedAt =
+    const updated =
       new Date(
-        incomingStatus.updated_at
+        incoming.updated_at
       ).getTime();
 
     if (
-      Number.isNaN(updatedAt)
+      Number.isNaN(updated)
     ) {
       return false;
     }
 
-    return (
-      updatedAt >=
-      requestStartedAt
-    );
+    return updated >= started;
   }
 
-  /* =====================================================
+  /* ===================================================
+     LOAD SECURITY
+  =================================================== */
+
+  async function loadSecurity() {
+    if (!deviceId) {
+      return;
+    }
+
+    try {
+      const response =
+        await fetch(
+          `/api/device/security?device_id=${encodeURIComponent(
+            deviceId
+          )}`,
+          {
+            method: "GET",
+            cache: "no-store",
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ||
+            "Unable to load security state."
+        );
+      }
+
+      setSecurityState(
+        data?.state ||
+          "active"
+      );
+
+      setSecurityReason(
+        data?.data?.reason ??
+          null
+      );
+    } catch (err: any) {
+      console.error(err);
+    }
+  }
+
+  /* ===================================================
+     SECURITY ACTION
+  =================================================== */
+
+  async function securityAction(
+    action:
+      | "lock"
+      | "unlock"
+      | "emergency_lock"
+      | "lost"
+      | "stolen"
+  ) {
+    if (!device) {
+      return;
+    }
+
+    const labels: Record<
+      string,
+      string
+    > = {
+      lock: "Lock",
+      unlock: "Unlock",
+      emergency_lock:
+        "Emergency Lock",
+      lost: "Lost",
+      stolen: "Stolen",
+    };
+
+    const confirmed =
+      window.confirm(
+        `Are you sure you want to ${labels[action]} this device?`
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setSecurityLoading(
+      true
+    );
+
+    setSecurityMessage("");
+
+    setError("");
+
+    try {
+      const response =
+        await fetch(
+          "/api/device/security",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              device_id:
+                device.device_id,
+              action,
+            }),
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ||
+            "Security action failed."
+        );
+      }
+
+      setSecurityMessage(
+        `Device ${labels[
+          action
+        ].toLowerCase()} action completed.`
+      );
+
+      await loadSecurity();
+    } catch (err: any) {
+      console.error(err);
+
+      setError(
+        err?.message ||
+          "Security action failed."
+      );
+    } finally {
+      setSecurityLoading(
+        false
+      );
+    }
+  }
+
+  /* ===================================================
+     GENERATE RECOVERY CODES
+  =================================================== */
+
+  async function generateRecoveryCodes() {
+    if (!device) {
+      return;
+    }
+
+    const confirmed =
+      window.confirm(
+        "Generate a new recovery-code set? The previous recovery codes will immediately become invalid."
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setRecoveryLoading(
+      true
+    );
+
+    setError("");
+
+    setSecurityMessage("");
+
+    setRecoveryCodes([]);
+
+    try {
+      const response =
+        await fetch(
+          "/api/device/recovery-codes",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              device_id:
+                device.device_id,
+            }),
+          }
+        );
+
+      const data =
+        (await response.json()) as RecoveryResponse;
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ||
+            "Unable to generate recovery codes."
+        );
+      }
+
+      let codes: string[] =
+        [];
+
+      if (
+        Array.isArray(
+          data.codes
+        )
+      ) {
+        codes =
+          data.codes;
+      } else if (
+        data.codes &&
+        typeof data.codes ===
+          "object" &&
+        Array.isArray(
+          data.codes.codes
+        )
+      ) {
+        codes =
+          data.codes.codes;
+      }
+
+      setRecoveryCodes(
+        codes
+      );
+
+      setSecurityMessage(
+        "New recovery codes generated. Save them now — they cannot be retrieved later."
+      );
+    } catch (err: any) {
+      console.error(err);
+
+      setError(
+        err?.message ||
+          "Unable to generate recovery codes."
+      );
+    } finally {
+      setRecoveryLoading(
+        false
+      );
+    }
+  }
+
+  /* ===================================================
+     COPY
+  =================================================== */
+
+  async function copyCode(
+    code: string
+  ) {
+    try {
+      await navigator.clipboard.writeText(
+        code
+      );
+
+      setCopiedCode(
+        code
+      );
+
+      setTimeout(
+        () =>
+          setCopiedCode(
+            null
+          ),
+        1500
+      );
+    } catch {
+      setError(
+        "Unable to copy code."
+      );
+    }
+  }
+
+  /* ===================================================
      LOAD DEVICE
-  ===================================================== */
+  =================================================== */
 
   async function loadDevice(
     showRefresh = false
@@ -337,7 +749,9 @@ export default function DevicePage() {
 
     try {
       const {
-        data: { session },
+        data: {
+          session,
+        },
       } =
         await supabase.auth.getSession();
 
@@ -395,8 +809,10 @@ export default function DevicePage() {
       =============================================== */
 
       const {
-        data: capabilitiesData,
-        error: capabilitiesError,
+        data:
+          capabilitiesData,
+        error:
+          capabilitiesError,
       } =
         await supabase
           .from(
@@ -430,7 +846,9 @@ export default function DevicePage() {
             }
           );
 
-      if (capabilitiesError) {
+      if (
+        capabilitiesError
+      ) {
         throw capabilitiesError;
       }
 
@@ -441,10 +859,6 @@ export default function DevicePage() {
       setCapabilities(
         loadedCapabilities
       );
-
-      /* ===============================================
-         CONTROL VALUES
-      =============================================== */
 
       setControlValues(
         (current) => {
@@ -459,14 +873,14 @@ export default function DevicePage() {
                 {};
 
               if (
-                capability.type ===
-                  "range" ||
-                capability.type ===
-                  "slider" ||
-                capability.type ===
-                  "number" ||
-                capability.type ===
-                  "numeric"
+                [
+                  "range",
+                  "slider",
+                  "number",
+                  "numeric",
+                ].includes(
+                  capability.type
+                )
               ) {
                 if (
                   next[
@@ -581,6 +995,8 @@ export default function DevicePage() {
         (eventsData ||
           []) as DeviceEvent[]
       );
+
+      await loadSecurity();
     } catch (err: any) {
       console.error(err);
 
@@ -594,9 +1010,9 @@ export default function DevicePage() {
     }
   }
 
-  /* =====================================================
+  /* ===================================================
      INITIAL LOAD
-  ===================================================== */
+  =================================================== */
 
   useEffect(() => {
     if (
@@ -610,9 +1026,9 @@ export default function DevicePage() {
     roomId,
   ]);
 
-  /* =====================================================
-     CLEANUP STATUS TIMER
-  ===================================================== */
+  /* ===================================================
+     CLEANUP
+  =================================================== */
 
   useEffect(() => {
     return () => {
@@ -634,9 +1050,9 @@ export default function DevicePage() {
     };
   }, []);
 
-  /* =====================================================
+  /* ===================================================
      REALTIME
-  ===================================================== */
+  =================================================== */
 
   useEffect(() => {
     if (
@@ -650,26 +1066,17 @@ export default function DevicePage() {
         .channel(
           `device-dashboard-${device.device_id}`
         )
-
-        /* =============================================
-           STATUS REALTIME
-        ============================================= */
-
         .on(
           "postgres_changes",
           {
             event: "*",
             schema: "public",
-            table: "device_status",
+            table:
+              "device_status",
             filter:
               `device_id=eq.${device.device_id}`,
           },
           (payload) => {
-            console.log(
-              "REALTIME STATUS:",
-              payload
-            );
-
             if (
               payload.eventType ===
               "DELETE"
@@ -682,21 +1089,17 @@ export default function DevicePage() {
             if (
               payload.new
             ) {
-              const incomingStatus =
+              const incoming =
                 payload.new as DeviceStatus;
 
               setStatus(
-                incomingStatus
+                incoming
               );
-
-              /* =========================================
-                 FRESH RESPONSE FROM ESP
-              ========================================= */
 
               if (
                 statusRequestWaiting &&
                 isFreshStatusResponse(
-                  incomingStatus
+                  incoming
                 )
               ) {
                 clearStatusWaiting();
@@ -712,26 +1115,17 @@ export default function DevicePage() {
             }
           }
         )
-
-        /* =============================================
-           EVENTS REALTIME
-        ============================================= */
-
         .on(
           "postgres_changes",
           {
             event: "*",
             schema: "public",
-            table: "device_events",
+            table:
+              "device_events",
             filter:
               `device_id=eq.${device.device_id}`,
           },
           (payload) => {
-            console.log(
-              "REALTIME EVENT:",
-              payload
-            );
-
             if (
               payload.eventType ===
               "INSERT"
@@ -749,15 +1143,7 @@ export default function DevicePage() {
             }
           }
         )
-
-        .subscribe(
-          (subscriptionStatus) => {
-            console.log(
-              "Realtime:",
-              subscriptionStatus
-            );
-          }
-        );
+        .subscribe();
 
     return () => {
       supabase.removeChannel(
@@ -769,9 +1155,9 @@ export default function DevicePage() {
     statusRequestWaiting,
   ]);
 
-  /* =====================================================
+  /* ===================================================
      SEND COMMAND
-  ===================================================== */
+  =================================================== */
 
   async function sendCommand(
     capability: Capability,
@@ -782,7 +1168,9 @@ export default function DevicePage() {
     }
 
     setError("");
+
     setCommandMessage("");
+
     setStatusOfflineMessage(
       false
     );
@@ -793,7 +1181,9 @@ export default function DevicePage() {
 
     try {
       const {
-        data: { session },
+        data: {
+          session,
+        },
       } =
         await supabase.auth.getSession();
 
@@ -805,34 +1195,39 @@ export default function DevicePage() {
         return;
       }
 
-      const commandPayload = {
-        control_id:
-          capability.control_id,
-        value,
-      };
-
       const commandText =
-        JSON.stringify(
-          commandPayload
+        JSON.stringify({
+          control_id:
+            capability.control_id,
+          value,
+        });
+
+      const response =
+        await fetch(
+          "/api/command",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              device_id:
+                device.device_id,
+              message:
+                commandText,
+            }),
+          }
         );
 
-      const {
-        error: commandError,
-      } =
-        await supabase
-          .from(
-            "device_commands"
-          )
-          .insert({
-            device_id:
-              device.device_id,
-            command:
-              commandText,
-            status: "pending",
-          });
+      const data =
+        await response.json();
 
-      if (commandError) {
-        throw commandError;
+      if (!response.ok) {
+        throw new Error(
+          data?.error ||
+            "Unable to send command."
+        );
       }
 
       setCommandMessage(
@@ -852,9 +1247,9 @@ export default function DevicePage() {
     }
   }
 
-  /* =====================================================
-     GET CURRENT STATUS
-  ===================================================== */
+  /* ===================================================
+     STATUS REQUEST
+  =================================================== */
 
   async function requestCurrentStatus() {
     if (!device) {
@@ -862,7 +1257,9 @@ export default function DevicePage() {
     }
 
     setError("");
+
     setCommandMessage("");
+
     setStatusOfflineMessage(
       false
     );
@@ -873,7 +1270,9 @@ export default function DevicePage() {
 
     try {
       const {
-        data: { session },
+        data: {
+          session,
+        },
       } =
         await supabase.auth.getSession();
 
@@ -885,34 +1284,36 @@ export default function DevicePage() {
         return;
       }
 
-      /* ===============================================
-         START TIMER BEFORE INSERT
-      =============================================== */
-
       startStatusWaiting();
 
-      const commandText =
-        "STATUS";
+      const response =
+        await fetch(
+          "/api/command",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              device_id:
+                device.device_id,
+              message:
+                "STATUS",
+            }),
+          }
+        );
 
-      const {
-        error: commandError,
-      } =
-        await supabase
-          .from(
-            "device_commands"
-          )
-          .insert({
-            device_id:
-              device.device_id,
-            command:
-              commandText,
-            status: "pending",
-          });
+      const data =
+        await response.json();
 
-      if (commandError) {
+      if (!response.ok) {
         clearStatusWaiting();
 
-        throw commandError;
+        throw new Error(
+          data?.error ||
+            "Unable to request device status."
+        );
       }
 
       setCommandMessage(
@@ -930,9 +1331,9 @@ export default function DevicePage() {
     }
   }
 
-  /* =====================================================
-     UPDATE CONTROL VALUE
-  ===================================================== */
+  /* ===================================================
+     VALUE
+  =================================================== */
 
   function updateControlValue(
     controlId: string,
@@ -947,9 +1348,9 @@ export default function DevicePage() {
     );
   }
 
-  /* =====================================================
-     FORMAT DATE
-  ===================================================== */
+  /* ===================================================
+     DATE
+  =================================================== */
 
   function formatDate(
     date: string | null
@@ -975,9 +1376,9 @@ export default function DevicePage() {
     }
   }
 
-  /* =====================================================
-     EVENT TEXT
-  ===================================================== */
+  /* ===================================================
+     EVENT
+  =================================================== */
 
   function eventText(
     event: DeviceEvent
@@ -991,31 +1392,27 @@ export default function DevicePage() {
     return event.event_type;
   }
 
-  /* =====================================================
-     GET LIVE BOOLEAN STATUS
-  ===================================================== */
+  /* ===================================================
+     BOOLEAN STATUS
+  =================================================== */
 
   function getBooleanStatus(
     controlId: string
-  ): boolean {
+  ) {
     const value =
       status?.status_data?.[
         controlId
       ];
 
-    if (
-      typeof value ===
+    return typeof value ===
       "boolean"
-    ) {
-      return value;
-    }
-
-    return false;
+      ? value
+      : false;
   }
 
-  /* =====================================================
-     RENDER CAPABILITY
-  ===================================================== */
+  /* ===================================================
+     CAPABILITY
+  =================================================== */
 
   function renderCapability(
     capability: Capability
@@ -1031,34 +1428,33 @@ export default function DevicePage() {
       sendingCommand ===
       capability.control_id;
 
-    /* ===============================================
-       SWITCH / TOGGLE / BUTTON
-    =============================================== */
-
     if (
-      type === "switch" ||
-      type === "toggle" ||
-      type === "button"
+      [
+        "switch",
+        "toggle",
+        "button",
+      ].includes(type)
     ) {
       const currentState =
         getBooleanStatus(
           capability.control_id
         );
 
-      const nextState =
-        !currentState;
-
       return (
         <button
           type="button"
-          disabled={busy}
+          disabled={
+            busy ||
+            securityState !==
+              "active"
+          }
           onClick={() =>
             sendCommand(
               capability,
-              nextState
+              !currentState
             )
           }
-          className="flex w-full items-center justify-between rounded-2xl border border-slate-100 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-200 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex w-full items-center justify-between rounded-2xl border border-slate-100 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
         >
           <div className="flex items-center gap-3">
             <div
@@ -1080,9 +1476,7 @@ export default function DevicePage() {
                   className="animate-spin"
                 />
               ) : (
-                <Power
-                  size={20}
-                />
+                <Power size={20} />
               )}
             </div>
 
@@ -1134,10 +1528,6 @@ export default function DevicePage() {
         </button>
       );
     }
-
-    /* ===============================================
-       SLIDER / RANGE
-    =============================================== */
 
     if (
       type === "range" ||
@@ -1209,9 +1599,11 @@ export default function DevicePage() {
               max={max}
               step={step}
               value={value}
-              onChange={(
-                event
-              ) =>
+              disabled={
+                securityState !==
+                "active"
+              }
+              onChange={(event) =>
                 updateControlValue(
                   capability.control_id,
                   Number(
@@ -1242,14 +1634,18 @@ export default function DevicePage() {
 
           <button
             type="button"
-            disabled={busy}
+            disabled={
+              busy ||
+              securityState !==
+                "active"
+            }
             onClick={() =>
               sendCommand(
                 capability,
                 value
               )
             }
-            className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+            className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-60"
             style={{
               backgroundColor:
                 THEME_COLOR,
@@ -1273,10 +1669,6 @@ export default function DevicePage() {
         </div>
       );
     }
-
-    /* ===============================================
-       NUMBER
-    =============================================== */
 
     if (
       type === "number" ||
@@ -1325,9 +1717,11 @@ export default function DevicePage() {
               <input
                 type="number"
                 value={value}
-                onChange={(
-                  event
-                ) =>
+                disabled={
+                  securityState !==
+                  "active"
+                }
+                onChange={(event) =>
                   updateControlValue(
                     capability.control_id,
                     Number(
@@ -1336,7 +1730,7 @@ export default function DevicePage() {
                     )
                   )
                 }
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 outline-none transition focus:border-[#42B8C5] focus:bg-white focus:ring-4 focus:ring-[#42B8C5]/10"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 outline-none"
               />
 
               {unit && (
@@ -1348,7 +1742,11 @@ export default function DevicePage() {
 
             <button
               type="button"
-              disabled={busy}
+              disabled={
+                busy ||
+                securityState !==
+                  "active"
+              }
               onClick={() =>
                 sendCommand(
                   capability,
@@ -1375,21 +1773,21 @@ export default function DevicePage() {
       );
     }
 
-    /* ===============================================
-       DEFAULT
-    =============================================== */
-
     return (
       <button
         type="button"
-        disabled={busy}
+        disabled={
+          busy ||
+          securityState !==
+            "active"
+        }
         onClick={() =>
           sendCommand(
             capability,
             true
           )
         }
-        className="rounded-2xl border border-slate-100 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md disabled:opacity-60"
+        className="rounded-2xl border border-slate-100 bg-white p-5 text-left shadow-sm disabled:opacity-60"
       >
         <div className="flex items-center justify-between">
           <div>
@@ -1429,192 +1827,53 @@ export default function DevicePage() {
     );
   }
 
-  /* =====================================================
+  /* ===================================================
      LOADING
-  ===================================================== */
+  =================================================== */
 
   if (loading) {
-  return (
-    <main className="min-h-screen bg-[#f7fbfc] text-slate-600">
-      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 animate-pulse">
+    return (
+      <main className="min-h-screen bg-[#f7fbfc]">
+        <div className="mx-auto max-w-6xl animate-pulse px-4 py-8">
+          <div className="h-6 w-32 rounded bg-slate-200" />
 
-        {/* HEADER */}
-        <header className="mb-7">
+          <div className="mt-8 h-20 w-80 rounded-2xl bg-slate-200" />
 
-          {/* Back to Room */}
-          <div className="mb-6 h-5 w-28 rounded-lg bg-slate-200" />
-
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-
-            {/* Device identity */}
-            <div className="flex items-center gap-4">
-
-              <div className="h-14 w-14 shrink-0 rounded-2xl bg-slate-200" />
-
-              <div>
-                <div className="flex items-center gap-2">
-                  <div className="h-3 w-14 rounded bg-slate-200" />
-                  <div className="h-5 w-16 rounded-full bg-slate-200" />
-                </div>
-
-                <div className="mt-2 h-8 w-52 rounded-lg bg-slate-200 sm:w-64" />
-
-                <div className="mt-2 h-3 w-32 rounded bg-slate-200" />
-              </div>
-
-            </div>
-
-            {/* Actions */}
-            <div className="flex flex-wrap gap-3">
-              <div className="h-12 w-40 rounded-xl bg-slate-200" />
-              <div className="h-12 w-24 rounded-xl bg-slate-200" />
-            </div>
-
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[1, 2, 3, 4].map(
+              (item) => (
+                <div
+                  key={item}
+                  className="h-28 rounded-[24px] bg-white shadow-sm"
+                />
+              )
+            )}
           </div>
-        </header>
 
+          <div className="mt-8 h-48 rounded-[28px] bg-white shadow-sm" />
 
-        {/* SUMMARY CARDS */}
-        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-
-          {[1, 2, 3, 4].map((item) => (
-            <div
-              key={item}
-              className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm"
-            >
-              <div className="flex items-center justify-between">
-
-                <div>
-                  <div className="h-4 w-16 rounded bg-slate-200" />
-                  <div className="mt-3 h-8 w-24 rounded-lg bg-slate-200" />
-                </div>
-
-                <div className="h-11 w-11 rounded-xl bg-slate-200" />
-
-              </div>
-            </div>
-          ))}
-
+          <div className="mt-8 h-48 rounded-[28px] bg-white shadow-sm" />
         </div>
+      </main>
+    );
+  }
 
-
-        {/* LIVE STATUS */}
-        <section className="mb-8">
-
-          <div className="mb-5">
-            <div className="h-6 w-28 rounded-lg bg-slate-200" />
-            <div className="mt-2 h-4 w-72 max-w-full rounded bg-slate-200" />
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-
-            {[1, 2, 3, 4].map((item) => (
-              <div
-                key={item}
-                className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm"
-              >
-                <div className="flex items-start justify-between">
-
-                  <div>
-                    <div className="h-3 w-20 rounded bg-slate-200" />
-                    <div className="mt-4 h-7 w-20 rounded-lg bg-slate-200" />
-                  </div>
-
-                  <div className="h-10 w-10 rounded-xl bg-slate-200" />
-
-                </div>
-              </div>
-            ))}
-
-          </div>
-
-        </section>
-
-
-        {/* CONTROLS */}
-        <section className="mb-8">
-
-          <div className="mb-5">
-            <div className="h-6 w-24 rounded-lg bg-slate-200" />
-            <div className="mt-2 h-4 w-64 max-w-full rounded bg-slate-200" />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-
-            {[1, 2].map((item) => (
-              <div
-                key={item}
-                className="rounded-[24px] border border-slate-100 bg-white p-6 shadow-sm"
-              >
-
-                <div className="flex items-center justify-between">
-
-                  <div>
-                    <div className="h-4 w-28 rounded bg-slate-200" />
-                    <div className="mt-3 h-3 w-40 rounded bg-slate-200" />
-                  </div>
-
-                  <div className="h-10 w-20 rounded-xl bg-slate-200" />
-
-                </div>
-
-                <div className="mt-6 h-12 w-full rounded-xl bg-slate-200" />
-
-              </div>
-            ))}
-
-          </div>
-
-        </section>
-
-
-        {/* DEVICE INFORMATION */}
-        <section className="mb-8">
-
-          <div className="mb-5">
-            <div className="h-6 w-40 rounded-lg bg-slate-200" />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-
-            {[1, 2].map((item) => (
-              <div
-                key={item}
-                className="h-24 rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm"
-              >
-                <div className="h-4 w-28 rounded bg-slate-200" />
-                <div className="mt-3 h-4 w-48 rounded bg-slate-200" />
-              </div>
-            ))}
-
-          </div>
-
-        </section>
-
-      </div>
-    </main>
-  );
-}
-
-  /* =====================================================
-     DEVICE NOT FOUND
-  ===================================================== */
+  /* ===================================================
+     NOT FOUND
+  =================================================== */
 
   if (!device) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#f7fbfc] px-4">
-        <div className="w-full max-w-md rounded-[28px] border border-slate-100 bg-white p-8 text-center shadow-sm">
-          <div
-            className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl"
+        <div className="w-full max-w-md rounded-[28px] bg-white p-8 text-center shadow-sm">
+          <Cpu
+            size={35}
+            className="mx-auto"
             style={{
-              backgroundColor:
-                `${THEME_COLOR}12`,
               color:
                 THEME_COLOR,
             }}
-          >
-            <Cpu size={30} />
-          </div>
+          />
 
           <h1 className="mt-5 text-xl font-semibold text-slate-600">
             Device not found
@@ -1647,9 +1906,9 @@ export default function DevicePage() {
     );
   }
 
-  /* =====================================================
-     ONLINE STATUS
-  ===================================================== */
+  /* ===================================================
+     DERIVED
+  =================================================== */
 
   const isOnline =
     status?.online ??
@@ -1659,9 +1918,25 @@ export default function DevicePage() {
     status?.last_seen_at ??
     device.last_seen_at;
 
-  /* =====================================================
-     MAIN PAGE
-  ===================================================== */
+  const commandsBlocked =
+    securityState !==
+    "active";
+
+  const securityLabel =
+    securityState
+      .replace(
+        "_",
+        " "
+      )
+      .replace(
+        /\b\w/g,
+        (char) =>
+          char.toUpperCase()
+      );
+
+  /* ===================================================
+     MAIN
+  =================================================== */
 
   return (
     <main className="min-h-screen bg-[#f7fbfc] text-slate-600">
@@ -1678,7 +1953,7 @@ export default function DevicePage() {
                 `/house/${houseId}/room/${roomId}`
               )
             }
-            className="mb-6 flex items-center gap-2 text-sm text-slate-400 transition hover:text-slate-600"
+            className="mb-6 flex items-center gap-2 text-sm text-slate-400 hover:text-slate-600"
           >
             <ArrowLeft
               size={17}
@@ -1687,10 +1962,9 @@ export default function DevicePage() {
           </button>
 
           <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-
             <div className="flex items-center gap-4">
               <div
-                className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl"
+                className="flex h-14 w-14 items-center justify-center rounded-2xl"
                 style={{
                   backgroundColor:
                     `${THEME_COLOR}12`,
@@ -1698,7 +1972,9 @@ export default function DevicePage() {
                     THEME_COLOR,
                 }}
               >
-                <Cpu size={28} />
+                <Cpu
+                  size={28}
+                />
               </div>
 
               <div>
@@ -1735,30 +2011,24 @@ export default function DevicePage() {
                 </h1>
 
                 <p className="mt-1 font-mono text-xs text-slate-400">
-                  {device.device_id}
+                  {
+                    device.device_id
+                  }
                 </p>
               </div>
             </div>
 
-            {/* =================================================
-                SYSTEM ACTIONS
-            ================================================= */}
-
-            <div className="flex flex-wrap items-center gap-3">
-
-              {/* =============================================
-                  GET CURRENT STATUS
-              ============================================= */}
-
+            <div className="flex flex-wrap gap-3">
               <button
                 type="button"
                 onClick={
                   requestCurrentStatus
                 }
                 disabled={
-                  statusRequestWaiting
+                  statusRequestWaiting ||
+                  commandsBlocked
                 }
-                className="flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
                 style={{
                   backgroundColor:
                     THEME_COLOR,
@@ -1770,25 +2040,22 @@ export default function DevicePage() {
                       size={17}
                       className="animate-spin"
                     />
-
                     Waiting{" "}
-                    {statusCountdown}s
+                    {
+                      statusCountdown
+                    }
+                    s
                   </>
                 ) : (
                   <>
                     <Send
                       size={17}
                     />
-
                     Get Current
                     Status
                   </>
                 )}
               </button>
-
-              {/* =============================================
-                  REFRESH
-              ============================================= */}
 
               <button
                 type="button"
@@ -1800,7 +2067,7 @@ export default function DevicePage() {
                 disabled={
                   refreshing
                 }
-                className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-500 shadow-sm transition hover:bg-slate-50 disabled:opacity-60"
+                className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-500 shadow-sm disabled:opacity-60"
               >
                 <RefreshCw
                   size={17}
@@ -1818,14 +2085,50 @@ export default function DevicePage() {
         </header>
 
         {/* =================================================
-            OFFLINE AFTER 50 SECONDS
+            SECURITY BANNER
+        ================================================= */}
+
+        {commandsBlocked && (
+          <div className="mb-6 flex items-start gap-3 rounded-2xl border border-red-100 bg-red-50 px-4 py-4 text-red-600">
+            <ShieldAlert
+              size={21}
+              className="mt-0.5 shrink-0"
+            />
+
+            <div>
+              <p className="font-semibold">
+                Device is{" "}
+                {securityLabel}
+              </p>
+
+              <p className="mt-1 text-xs text-red-500">
+                Commands are blocked
+                until the device is
+                returned to an active
+                security state.
+              </p>
+
+              {securityReason && (
+                <p className="mt-1 text-xs text-red-400">
+                  Reason:{" "}
+                  {
+                    securityReason
+                  }
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* =================================================
+            OFFLINE
         ================================================= */}
 
         {statusOfflineMessage && (
           <div className="mb-6 flex items-start gap-3 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-4 text-sm text-amber-700">
             <WifiOff
               size={19}
-              className="mt-0.5 shrink-0"
+              className="mt-0.5"
             />
 
             <div>
@@ -1833,7 +2136,7 @@ export default function DevicePage() {
                 Device is offline
               </p>
 
-              <p className="mt-0.5 text-xs text-amber-600">
+              <p className="mt-0.5 text-xs">
                 We'll update this when
                 it comes online.
               </p>
@@ -1849,7 +2152,6 @@ export default function DevicePage() {
           <div className="mb-6 flex items-start gap-3 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-500">
             <AlertTriangle
               size={18}
-              className="mt-0.5 shrink-0"
             />
 
             <span>
@@ -1872,150 +2174,415 @@ export default function DevicePage() {
           </div>
         )}
 
+        {securityMessage && (
+          <div className="mb-6 flex items-center gap-3 rounded-2xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-sm text-cyan-700">
+            <Shield
+              size={18}
+            />
+
+            {securityMessage}
+          </div>
+        )}
+
         {/* =================================================
             SUMMARY
         ================================================= */}
 
         <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 
-          {/* STATUS */}
-
           <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-400">
-                  Status
-                </p>
+            <p className="text-sm text-slate-400">
+              Status
+            </p>
 
-                <p
-                  className={`mt-2 text-2xl font-semibold ${
-                    isOnline
-                      ? "text-green-500"
-                      : "text-slate-400"
-                  }`}
-                >
-                  {isOnline
-                    ? "Online"
-                    : "Offline"}
-                </p>
-              </div>
-
-              <div
-                className={`flex h-11 w-11 items-center justify-center rounded-xl ${
-                  isOnline
-                    ? "bg-green-50 text-green-500"
-                    : "bg-slate-50 text-slate-400"
-                }`}
-              >
-                {isOnline ? (
-                  <Wifi size={21} />
-                ) : (
-                  <WifiOff
-                    size={21}
-                  />
-                )}
-              </div>
-            </div>
+            <p
+              className={`mt-2 text-2xl font-semibold ${
+                isOnline
+                  ? "text-green-500"
+                  : "text-slate-400"
+              }`}
+            >
+              {isOnline
+                ? "Online"
+                : "Offline"}
+            </p>
           </div>
 
-          {/* LAST SEEN */}
-
           <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-400">
-                  Last Seen
-                </p>
+            <p className="text-sm text-slate-400">
+              Last Seen
+            </p>
 
-                <p className="mt-2 text-sm font-semibold text-slate-600">
-                  {lastSeen
-                    ? formatDate(
-                        lastSeen
-                      )
-                    : "Never"}
-                </p>
-              </div>
-
-              <div
-                className="flex h-11 w-11 items-center justify-center rounded-xl"
-                style={{
-                  backgroundColor:
-                    `${THEME_COLOR}12`,
-                  color:
-                    THEME_COLOR,
-                }}
-              >
-                <Clock3
-                  size={21}
-                />
-              </div>
-            </div>
+            <p className="mt-2 text-sm font-semibold text-slate-600">
+              {formatDate(
+                lastSeen
+              )}
+            </p>
           </div>
 
-          {/* CONTROLS */}
-
           <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-400">
-                  Controls
-                </p>
+            <p className="text-sm text-slate-400">
+              Controls
+            </p>
 
-                <p className="mt-2 text-3xl font-semibold text-slate-600">
-                  {
-                    capabilities.length
-                  }
-                </p>
-              </div>
-
-              <div
-                className="flex h-11 w-11 items-center justify-center rounded-xl"
-                style={{
-                  backgroundColor:
-                    `${THEME_COLOR}12`,
-                  color:
-                    THEME_COLOR,
-                }}
-              >
-                <Settings
-                  size={21}
-                />
-              </div>
-            </div>
+            <p className="mt-2 text-3xl font-semibold text-slate-600">
+              {
+                capabilities.length
+              }
+            </p>
           </div>
 
-          {/* EVENTS */}
-
           <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-400">
-                  Recent Events
-                </p>
+            <p className="text-sm text-slate-400">
+              Security
+            </p>
 
-                <p className="mt-2 text-3xl font-semibold text-slate-600">
-                  {
-                    events.length
-                  }
-                </p>
-              </div>
-
-              <div
-                className="flex h-11 w-11 items-center justify-center rounded-xl"
-                style={{
-                  backgroundColor:
-                    `${THEME_COLOR}12`,
-                  color:
-                    THEME_COLOR,
-                }}
-              >
-                <History
-                  size={21}
-                />
-              </div>
-            </div>
+            <p
+              className={`mt-2 text-xl font-semibold ${
+                securityState ===
+                "active"
+                  ? "text-green-500"
+                  : "text-red-500"
+              }`}
+            >
+              {securityLabel}
+            </p>
           </div>
         </div>
+
+        {/* =================================================
+            SECURITY CENTER
+        ================================================= */}
+
+        <section className="mb-8">
+          <div className="mb-5">
+            <div className="flex items-center gap-2">
+              <Shield
+                size={21}
+                style={{
+                  color:
+                    THEME_COLOR,
+                }}
+              />
+
+              <h2 className="text-xl font-semibold text-slate-600">
+                Security Center
+              </h2>
+            </div>
+
+            <p className="mt-1 text-sm text-slate-400">
+              Protect, lock, recover and
+              manage this device.
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+
+            {/* CURRENT SECURITY */}
+
+            <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-slate-400">
+                    Current State
+                  </p>
+
+                  <p
+                    className={`mt-2 text-2xl font-semibold ${
+                      securityState ===
+                      "active"
+                        ? "text-green-500"
+                        : "text-red-500"
+                    }`}
+                  >
+                    {
+                      securityLabel
+                    }
+                  </p>
+                </div>
+
+                <div
+                  className={`flex h-12 w-12 items-center justify-center rounded-xl ${
+                    securityState ===
+                    "active"
+                      ? "bg-green-50 text-green-500"
+                      : "bg-red-50 text-red-500"
+                  }`}
+                >
+                  {securityState ===
+                  "active" ? (
+                    <Shield
+                      size={23}
+                    />
+                  ) : (
+                    <ShieldAlert
+                      size={23}
+                    />
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-5 grid grid-cols-2 gap-3">
+
+                <button
+                  type="button"
+                  disabled={
+                    securityLoading ||
+                    securityState !==
+                      "active"
+                  }
+                  onClick={() =>
+                    securityAction(
+                      "lock"
+                    )
+                  }
+                  className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50"
+                >
+                  <Lock
+                    size={17}
+                  />
+                  Lock
+                </button>
+
+                <button
+                  type="button"
+                  disabled={
+                    securityLoading ||
+                    securityState ===
+                      "active"
+                  }
+                  onClick={() =>
+                    securityAction(
+                      "unlock"
+                    )
+                  }
+                  className="flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                  style={{
+                    backgroundColor:
+                      THEME_COLOR,
+                  }}
+                >
+                  {securityLoading ? (
+                    <Loader2
+                      size={17}
+                      className="animate-spin"
+                    />
+                  ) : (
+                    <Unlock
+                      size={17}
+                    />
+                  )}
+                  Unlock
+                </button>
+
+              </div>
+            </div>
+
+            {/* HIGH RISK */}
+
+            <div className="rounded-[24px] border border-red-100 bg-white p-5 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-50 text-red-500">
+                  <Siren
+                    size={22}
+                  />
+                </div>
+
+                <div>
+                  <p className="font-semibold text-slate-600">
+                    Emergency Protection
+                  </p>
+
+                  <p className="mt-1 text-xs text-slate-400">
+                    Immediately block device
+                    access and revoke its
+                    active sessions.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+
+                <button
+                  type="button"
+                  disabled={
+                    securityLoading
+                  }
+                  onClick={() =>
+                    securityAction(
+                      "emergency_lock"
+                    )
+                  }
+                  className="flex items-center justify-center gap-2 rounded-xl bg-red-500 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  <Siren
+                    size={17}
+                  />
+                  Emergency Lock
+                </button>
+
+                <button
+                  type="button"
+                  disabled={
+                    securityLoading
+                  }
+                  onClick={() =>
+                    securityAction(
+                      "lost"
+                    )
+                  }
+                  className="flex items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 disabled:opacity-50"
+                >
+                  <ShieldAlert
+                    size={17}
+                  />
+                  Mark Lost
+                </button>
+
+                <button
+                  type="button"
+                  disabled={
+                    securityLoading
+                  }
+                  onClick={() =>
+                    securityAction(
+                      "stolen"
+                    )
+                  }
+                  className="flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600 disabled:opacity-50 sm:col-span-2"
+                >
+                  <AlertTriangle
+                    size={17}
+                  />
+                  Mark Stolen
+                </button>
+
+              </div>
+            </div>
+
+            {/* RECOVERY */}
+
+            <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm md:col-span-2">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <div
+                    className="flex h-11 w-11 items-center justify-center rounded-xl"
+                    style={{
+                      backgroundColor:
+                        `${THEME_COLOR}12`,
+                      color:
+                        THEME_COLOR,
+                    }}
+                  >
+                    <KeyRound
+                      size={22}
+                    />
+                  </div>
+
+                  <div>
+                    <p className="font-semibold text-slate-600">
+                      Recovery Codes
+                    </p>
+
+                    <p className="mt-1 text-xs text-slate-400">
+                      Generate three one-time
+                      recovery codes.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={
+                    recoveryLoading ||
+                    securityState !==
+                      "active"
+                  }
+                  onClick={
+                    generateRecoveryCodes
+                  }
+                  className="flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                  style={{
+                    backgroundColor:
+                      THEME_COLOR,
+                  }}
+                >
+                  {recoveryLoading ? (
+                    <Loader2
+                      size={17}
+                      className="animate-spin"
+                    />
+                  ) : (
+                    <KeyRound
+                      size={17}
+                    />
+                  )}
+
+                  Generate New Codes
+                </button>
+              </div>
+
+              {recoveryCodes.length >
+                0 && (
+                <div className="mt-5 rounded-2xl border border-amber-100 bg-amber-50 p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle
+                      size={19}
+                      className="mt-0.5 shrink-0 text-amber-600"
+                    />
+
+                    <div>
+                      <p className="font-semibold text-amber-700">
+                        Save these codes now
+                      </p>
+
+                      <p className="mt-1 text-xs text-amber-600">
+                        These codes are shown
+                        only once. The database
+                        stores hashes, not the
+                        plaintext codes.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                    {recoveryCodes.map(
+                      (code) => (
+                        <button
+                          key={code}
+                          type="button"
+                          onClick={() =>
+                            copyCode(
+                              code
+                            )
+                          }
+                          className="flex items-center justify-between rounded-xl border border-amber-200 bg-white px-4 py-3 font-mono text-sm font-bold tracking-wider text-slate-700"
+                        >
+                          <span>
+                            {code}
+                          </span>
+
+                          {copiedCode ===
+                          code ? (
+                            <Check
+                              size={16}
+                              className="text-green-500"
+                            />
+                          ) : (
+                            <Copy
+                              size={16}
+                              className="text-slate-400"
+                            />
+                          )}
+                        </button>
+                      )
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
 
         {/* =================================================
             LIVE STATUS
@@ -2084,19 +2651,13 @@ export default function DevicePage() {
                           </p>
                         </div>
 
-                        <div
-                          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                        <Gauge
+                          size={19}
                           style={{
-                            backgroundColor:
-                              `${THEME_COLOR}12`,
                             color:
                               THEME_COLOR,
                           }}
-                        >
-                          <Gauge
-                            size={19}
-                          />
-                        </div>
+                        />
                       </div>
                     </div>
                   );
@@ -2104,26 +2665,21 @@ export default function DevicePage() {
               )}
             </div>
           ) : (
-            <div className="rounded-[28px] border border-dashed border-slate-200 bg-white px-6 py-12 text-center shadow-sm">
-              <div
-                className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl"
+            <div className="rounded-[28px] border border-dashed border-slate-200 bg-white px-6 py-12 text-center">
+              <Activity
+                size={27}
+                className="mx-auto"
                 style={{
-                  backgroundColor:
-                    `${THEME_COLOR}12`,
                   color:
                     THEME_COLOR,
                 }}
-              >
-                <Activity
-                  size={27}
-                />
-              </div>
+              />
 
               <h3 className="mt-4 font-semibold text-slate-600">
                 No live data yet
               </h3>
 
-              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-400">
+              <p className="mt-2 text-sm text-slate-400">
                 The ESP has not reported
                 any status data yet.
               </p>
@@ -2165,26 +2721,21 @@ export default function DevicePage() {
               )}
             </div>
           ) : (
-            <div className="rounded-[28px] border border-dashed border-slate-200 bg-white px-6 py-12 text-center shadow-sm">
-              <div
-                className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl"
+            <div className="rounded-[28px] border border-dashed border-slate-200 bg-white px-6 py-12 text-center">
+              <Settings
+                size={27}
+                className="mx-auto"
                 style={{
-                  backgroundColor:
-                    `${THEME_COLOR}12`,
                   color:
                     THEME_COLOR,
                 }}
-              >
-                <Settings
-                  size={27}
-                />
-              </div>
+              />
 
               <h3 className="mt-4 font-semibold text-slate-600">
                 No controls configured
               </h3>
 
-              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-400">
+              <p className="mt-2 text-sm text-slate-400">
                 This device has no enabled
                 capabilities yet.
               </p>
@@ -2193,33 +2744,24 @@ export default function DevicePage() {
         </section>
 
         {/* =================================================
-            DEVICE INFORMATION
+            DEVICE INFO
         ================================================= */}
 
         <section className="mb-8">
-          <div className="mb-5">
-            <h2 className="text-xl font-semibold text-slate-600">
-              Device Information
-            </h2>
-          </div>
+          <h2 className="mb-5 text-xl font-semibold text-slate-600">
+            Device Information
+          </h2>
 
           <div className="grid gap-4 md:grid-cols-2">
-
             <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm">
               <div className="flex items-center gap-3">
-                <div
-                  className="flex h-10 w-10 items-center justify-center rounded-xl"
+                <Cpu
+                  size={19}
                   style={{
-                    backgroundColor:
-                      `${THEME_COLOR}12`,
                     color:
                       THEME_COLOR,
                   }}
-                >
-                  <Cpu
-                    size={19}
-                  />
-                </div>
+                />
 
                 <div>
                   <p className="text-xs text-slate-400">
@@ -2237,19 +2779,13 @@ export default function DevicePage() {
 
             <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm">
               <div className="flex items-center gap-3">
-                <div
-                  className="flex h-10 w-10 items-center justify-center rounded-xl"
+                <Settings
+                  size={19}
                   style={{
-                    backgroundColor:
-                      `${THEME_COLOR}12`,
                     color:
                       THEME_COLOR,
                   }}
-                >
-                  <Settings
-                    size={19}
-                  />
-                </div>
+                />
 
                 <div>
                   <p className="text-xs text-slate-400">
@@ -2265,7 +2801,6 @@ export default function DevicePage() {
                 </div>
               </div>
             </div>
-
           </div>
         </section>
 
@@ -2347,26 +2882,21 @@ export default function DevicePage() {
               </div>
             </div>
           ) : (
-            <div className="rounded-[28px] border border-dashed border-slate-200 bg-white px-6 py-12 text-center shadow-sm">
-              <div
-                className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl"
+            <div className="rounded-[28px] border border-dashed border-slate-200 bg-white px-6 py-12 text-center">
+              <History
+                size={27}
+                className="mx-auto"
                 style={{
-                  backgroundColor:
-                    `${THEME_COLOR}12`,
                   color:
                     THEME_COLOR,
                 }}
-              >
-                <History
-                  size={27}
-                />
-              </div>
+              />
 
               <h3 className="mt-4 font-semibold text-slate-600">
                 No activity yet
               </h3>
 
-              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-400">
+              <p className="mt-2 text-sm text-slate-400">
                 Device events will appear
                 here once your ESP starts
                 communicating with Supabase.

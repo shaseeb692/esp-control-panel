@@ -14,20 +14,22 @@ const serviceRoleKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 /* =====================================================
-   SERVICE CLIENT
+   ADMIN
 ===================================================== */
 
-const adminSupabase = createClient(
-  supabaseUrl,
-  serviceRoleKey
-);
+const adminSupabase =
+  createClient(
+    supabaseUrl,
+    serviceRoleKey
+  );
 
 /* =====================================================
-   AUTH CLIENT
+   AUTH
 ===================================================== */
 
 async function getAuthClient() {
-  const cookieStore = await cookies();
+  const cookieStore =
+    await cookies();
 
   return createServerClient(
     supabaseUrl,
@@ -38,10 +40,16 @@ async function getAuthClient() {
           return cookieStore.getAll();
         },
 
-        setAll(cookiesToSet) {
+        setAll(
+          cookiesToSet
+        ) {
           try {
             cookiesToSet.forEach(
-              ({ name, value, options }) => {
+              ({
+                name,
+                value,
+                options,
+              }) => {
                 cookieStore.set(
                   name,
                   value,
@@ -49,12 +57,7 @@ async function getAuthClient() {
                 );
               }
             );
-          } catch {
-            /*
-              Server Component / Route Handler
-              cookie mutation may not always be available.
-            */
-          }
+          } catch {}
         },
       },
     }
@@ -62,7 +65,7 @@ async function getAuthClient() {
 }
 
 /* =====================================================
-   POST COMMAND
+   POST
 ===================================================== */
 
 export async function POST(
@@ -72,22 +75,14 @@ export async function POST(
     const supabase =
       await getAuthClient();
 
-    /* ===============================================
-       AUTHENTICATION
-    =============================================== */
-
     const {
       data: {
         user,
       },
-      error: userError,
     } =
       await supabase.auth.getUser();
 
-    if (
-      userError ||
-      !user
-    ) {
+    if (!user) {
       return NextResponse.json(
         {
           error:
@@ -99,23 +94,16 @@ export async function POST(
       );
     }
 
-    /* ===============================================
-       BODY
-    =============================================== */
-
     const body =
       await request.json();
 
-    const {
-      device_id,
-      message,
-    } = body;
+    const deviceId =
+      typeof body?.device_id ===
+      "string"
+        ? body.device_id.trim()
+        : "";
 
-    if (
-      typeof device_id !==
-        "string" ||
-      !device_id.trim()
-    ) {
+    if (!deviceId) {
       return NextResponse.json(
         {
           error:
@@ -127,51 +115,25 @@ export async function POST(
       );
     }
 
-    if (
-      typeof message !==
-        "string" ||
-      !message.trim()
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "message is required.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    const cleanDeviceId =
-      device_id.trim();
-
-    const cleanMessage =
-      message.trim();
-
     /* ===============================================
-       OWNERSHIP CHECK
+       OWNER CHECK
     =============================================== */
 
     const {
       data: ownership,
-      error: ownershipError,
+      error:
+        ownershipError,
     } =
       await adminSupabase
         .from(
           "device_ownership"
         )
         .select(
-          `
-            id,
-            device_id,
-            owner_user_id,
-            status
-          `
+          "id"
         )
         .eq(
           "device_id",
-          cleanDeviceId
+          deviceId
         )
         .eq(
           "owner_user_id",
@@ -186,20 +148,7 @@ export async function POST(
     if (
       ownershipError
     ) {
-      console.error(
-        "Ownership lookup error:",
-        ownershipError
-      );
-
-      return NextResponse.json(
-        {
-          error:
-            "Unable to verify device ownership.",
-        },
-        {
-          status: 500,
-        }
-      );
+      throw ownershipError;
     }
 
     if (!ownership) {
@@ -220,8 +169,6 @@ export async function POST(
 
     const {
       data: securityState,
-      error:
-        securityStateError,
     } =
       await adminSupabase
         .from(
@@ -232,28 +179,9 @@ export async function POST(
         )
         .eq(
           "device_id",
-          cleanDeviceId
+          deviceId
         )
         .maybeSingle();
-
-    if (
-      securityStateError
-    ) {
-      console.error(
-        "Security state error:",
-        securityStateError
-      );
-
-      return NextResponse.json(
-        {
-          error:
-            "Unable to verify device security state.",
-        },
-        {
-          status: 500,
-        }
-      );
-    }
 
     const state =
       securityState?.state ??
@@ -265,12 +193,8 @@ export async function POST(
       return NextResponse.json(
         {
           error:
-            `Device is ${state.replace(
-              "_",
-              " "
-            )}. Commands are currently blocked.`,
-          security_state:
-            state,
+            "Recovery codes cannot be regenerated while the device is not active.",
+          state,
         },
         {
           status: 423,
@@ -279,17 +203,32 @@ export async function POST(
     }
 
     /* ===============================================
-       BASIC COMMAND VALIDATION
+       GENERATE
     =============================================== */
 
-    if (
-      cleanMessage.length >
-      2000
-    ) {
+    const {
+      data,
+      error:
+        rpcError,
+    } =
+      await supabase.rpc(
+        "generate_device_recovery_codes",
+        {
+          p_device_id:
+            deviceId,
+        }
+      );
+
+    if (rpcError) {
+      console.error(
+        "Recovery RPC error:",
+        rpcError
+      );
+
       return NextResponse.json(
         {
           error:
-            "Command is too long.",
+            rpcError.message,
         },
         {
           status: 400,
@@ -298,49 +237,7 @@ export async function POST(
     }
 
     /* ===============================================
-       INSERT COMMAND
-    =============================================== */
-
-    const {
-      data,
-      error: commandError,
-    } =
-      await adminSupabase
-        .from(
-          "device_commands"
-        )
-        .insert({
-          device_id:
-            cleanDeviceId,
-          command:
-            cleanMessage,
-          status:
-            "pending",
-        })
-        .select()
-        .single();
-
-    if (
-      commandError
-    ) {
-      console.error(
-        "Command insert error:",
-        commandError
-      );
-
-      return NextResponse.json(
-        {
-          error:
-            commandError.message,
-        },
-        {
-          status: 500,
-        }
-      );
-    }
-
-    /* ===============================================
-       SECURITY AUDIT
+       AUDIT
     =============================================== */
 
     await adminSupabase
@@ -351,32 +248,34 @@ export async function POST(
         user_id:
           user.id,
         device_id:
-          cleanDeviceId,
+          deviceId,
         event_type:
-          "device_command_sent",
+          "recovery_codes_regenerated",
         metadata: {
-          command_id:
-            data?.id ?? null,
+          warning:
+            "Plaintext recovery codes returned once.",
         },
       });
 
     return NextResponse.json({
       success: true,
-      data,
+      codes: data,
+      warning:
+        "Save these codes now. They cannot be retrieved later.",
     });
   } catch (error) {
     console.error(
-      "Command API error:",
+      "Recovery codes API error:",
       error
     );
 
     return NextResponse.json(
       {
         error:
-          "Invalid request.",
+          "Unable to generate recovery codes.",
       },
       {
-        status: 400,
+        status: 500,
       }
     );
   }
