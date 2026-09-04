@@ -1,64 +1,54 @@
 "use client";
 
-import {
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-
-import {
-  useParams,
-  useRouter,
-} from "next/navigation";
-
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 import {
   ArrowLeft,
-  Cpu,
-  Wifi,
-  WifiOff,
-  Loader2,
-  Settings,
+  Check,
+  Copy,
+  KeyRound,
+  Lock,
   RefreshCw,
-  Activity,
-  Clock3,
-  History,
-  Zap,
-  Power,
-  Gauge,
-  AlertTriangle,
-  Send,
   Shield,
   ShieldAlert,
-  Lock,
-  Unlock,
   Siren,
-  KeyRound,
-  Copy,
-  Check,
+  Unlock,
+  Wifi,
+  WifiOff,
+  Activity,
+  Clock3,
+  Cpu,
+  X,
 } from "lucide-react";
-
 import { supabase } from "@/lib/supabase";
 
-/* =====================================================
-   THEME
-===================================================== */
+const THEME_COLOR = "#42B8C5";
+const STATUS_TIMEOUT_MS = 50_000;
 
-const THEME_COLOR =
-  "#42B8C5";
+const DEFAULT_BACKGROUND =
+  "https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=2400&q=85";
 
-const STATUS_TIMEOUT_MS =
-  50_000;
-
-/* =====================================================
-   TYPES
-===================================================== */
+const SKY_STOPS = [
+  { minute: 0, color: "#070B1A" },
+  { minute: 240, color: "#10182E" },
+  { minute: 300, color: "#263B63" },
+  { minute: 330, color: "#E58A72" },
+  { minute: 360, color: "#F4B47D" },
+  { minute: 420, color: "#78B7D8" },
+  { minute: 720, color: "#65B9E8" },
+  { minute: 1020, color: "#F09A73" },
+  { minute: 1080, color: "#51385E" },
+  { minute: 1110, color: "#171B36" },
+  { minute: 1440, color: "#070B1A" },
+];
 
 type Device = {
   id: string;
   room_id: string;
   device_id: string;
   name: string;
-  device_type: string;
+  device_type: string | null;
   is_online: boolean;
   last_seen_at: string | null;
   created_at: string;
@@ -71,22 +61,16 @@ type Capability = {
   control_id: string;
   name: string;
   type: string;
-  config: Record<
-    string,
-    any
-  > | null;
+  config: Record<string, any> | null;
   created_at: string;
-  sort_order: number;
+  sort_order: number | null;
   enabled: boolean;
 };
 
 type DeviceStatus = {
   id: number;
   device_id: string;
-  status_data: Record<
-    string,
-    any
-  > | null;
+  status_data: Record<string, any> | null;
   updated_at: string;
   online: boolean;
   last_seen_at: string | null;
@@ -97,10 +81,7 @@ type DeviceEvent = {
   device_id: string;
   control_id: string | null;
   event_type: string;
-  value: Record<
-    string,
-    any
-  > | null;
+  value: Record<string, any> | null;
   created_at: string;
   source: string | null;
 };
@@ -114,533 +95,730 @@ type SecurityState =
 
 type RecoveryResponse = {
   success?: boolean;
-  codes?: string[] | {
-    codes?: string[];
-  };
+  codes?: string[] | { codes?: string[] };
   warning?: string;
   error?: string;
 };
 
-/* =====================================================
-   MAIN
-===================================================== */
+function hexToRgb(hex: string) {
+  const clean = hex.replace("#", "");
+
+  return {
+    r: parseInt(clean.substring(0, 2), 16),
+    g: parseInt(clean.substring(2, 4), 16),
+    b: parseInt(clean.substring(4, 6), 16),
+  };
+}
+
+function rgbToHex(r: number, g: number, b: number) {
+  return (
+    "#" +
+    [r, g, b]
+      .map((value) =>
+        Math.max(0, Math.min(255, Math.round(value)))
+          .toString(16)
+          .padStart(2, "0")
+      )
+      .join("")
+  );
+}
+
+function interpolateHex(a: string, b: string, amount: number) {
+  const c1 = hexToRgb(a);
+  const c2 = hexToRgb(b);
+
+  return rgbToHex(
+    c1.r + (c2.r - c1.r) * amount,
+    c1.g + (c2.g - c1.g) * amount,
+    c1.b + (c2.b - c1.b) * amount
+  );
+}
+
+function getSkyGradient(date: Date) {
+  const minutes =
+    date.getHours() * 60 +
+    date.getMinutes() +
+    date.getSeconds() / 60;
+
+  let previous = SKY_STOPS[0];
+  let next = SKY_STOPS[SKY_STOPS.length - 1];
+
+  for (let i = 0; i < SKY_STOPS.length - 1; i++) {
+    if (
+      minutes >= SKY_STOPS[i].minute &&
+      minutes <= SKY_STOPS[i + 1].minute
+    ) {
+      previous = SKY_STOPS[i];
+      next = SKY_STOPS[i + 1];
+      break;
+    }
+  }
+
+  const range = next.minute - previous.minute;
+  const amount =
+    range <= 0 ? 0 : (minutes - previous.minute) / range;
+
+  const color = interpolateHex(
+    previous.color,
+    next.color,
+    amount
+  );
+
+  return {
+    color,
+    css: `linear-gradient(135deg, ${color} 0%, ${interpolateHex(
+      color,
+      "#ffffff",
+      0.12
+    )} 45%, ${interpolateHex(
+      color,
+      "#000000",
+      0.18
+    )} 100%)`,
+  };
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "Never";
+
+  try {
+    return new Date(value).toLocaleString("en-PK", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return value;
+  }
+}
+
+function formatTime(value: Date) {
+  return value.toLocaleTimeString("en-PK", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getSecurityLabel(state: SecurityState) {
+  switch (state) {
+    case "active":
+      return "Active";
+    case "locked":
+      return "Locked";
+    case "emergency_locked":
+      return "Emergency Locked";
+    case "stolen":
+      return "Stolen";
+    case "lost":
+      return "Lost";
+    default:
+      return "Unknown";
+  }
+}
+
+function getSecurityDescription(state: SecurityState) {
+  switch (state) {
+    case "active":
+      return "Device commands are enabled.";
+    case "locked":
+      return "Device commands are currently blocked.";
+    case "emergency_locked":
+      return "Emergency protection is enabled and device commands are blocked.";
+    case "stolen":
+      return "Device is marked as stolen and commands are blocked.";
+    case "lost":
+      return "Device is marked as lost and commands are blocked.";
+    default:
+      return "";
+  }
+}
+
+function getSecurityBadgeClass(state: SecurityState) {
+  switch (state) {
+    case "active":
+      return "border-emerald-400/30 bg-emerald-400/10 text-emerald-300";
+    case "locked":
+      return "border-amber-400/30 bg-amber-400/10 text-amber-300";
+    case "emergency_locked":
+      return "border-red-400/30 bg-red-400/10 text-red-300";
+    case "stolen":
+      return "border-red-400/30 bg-red-400/10 text-red-300";
+    case "lost":
+      return "border-orange-400/30 bg-orange-400/10 text-orange-300";
+    default:
+      return "border-white/20 bg-white/10 text-white/70";
+  }
+}
 
 export default function DevicePage() {
-  const router =
-    useRouter();
+  const params = useParams();
+  const router = useRouter();
 
-  const params =
-    useParams();
+  const houseId = String(params.houseId);
+  const roomId = String(params.roomId);
+  const deviceRowId = String(params.deviceId);
 
-  const houseId =
-    typeof params.houseId ===
-    "string"
-      ? params.houseId
-      : "";
+  const [device, setDevice] = useState<Device | null>(null);
+  const [capabilities, setCapabilities] = useState<Capability[]>([]);
+  const [status, setStatus] = useState<DeviceStatus | null>(null);
+  const [events, setEvents] = useState<DeviceEvent[]>([]);
 
-  const roomId =
-    typeof params.roomId ===
-    "string"
-      ? params.roomId
-      : "";
+  const [loading, setLoading] = useState(true);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const deviceId =
-    typeof params.deviceId ===
-    "string"
-      ? params.deviceId
-      : "";
+  const [securityState, setSecurityState] =
+    useState<SecurityState>("active");
+  const [securityLoading, setSecurityLoading] = useState(false);
+  const [securityError, setSecurityError] = useState("");
+  const [securityOpen, setSecurityOpen] = useState(false);
 
-  /* ===================================================
-     STATE
-  =================================================== */
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const [recoveryWarning, setRecoveryWarning] = useState("");
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  const [device, setDevice] =
-    useState<Device | null>(
-      null
-    );
+  const [currentTime, setCurrentTime] = useState(new Date());
 
-  const [
-    capabilities,
-    setCapabilities,
-  ] = useState<
-    Capability[]
-  >([]);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
 
-  const [status, setStatus] =
-    useState<DeviceStatus | null>(
-      null
-    );
+    return () => window.clearInterval(timer);
+  }, []);
 
-  const [events, setEvents] =
-    useState<DeviceEvent[]>(
-      []
-    );
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [
-    refreshing,
-    setRefreshing,
-  ] = useState(false);
-
-  const [
-    sendingCommand,
-    setSendingCommand,
-  ] = useState<string | null>(
-    null
+  const sky = useMemo(
+    () => getSkyGradient(currentTime),
+    [currentTime]
   );
 
-  const [error, setError] =
-    useState("");
+  const isNight =
+    currentTime.getHours() < 6 ||
+    currentTime.getHours() >= 18;
 
-  const [
-    commandMessage,
-    setCommandMessage,
-  ] = useState("");
+  const commandsBlocked = securityState !== "active";
 
-  const [
-    controlValues,
-    setControlValues,
-  ] = useState<
-    Record<string, number>
-  >({});
-
-  /* ===================================================
-     STATUS TIMER
-  =================================================== */
-
-  const [
-    statusRequestWaiting,
-    setStatusRequestWaiting,
-  ] = useState(false);
-
-  const [
-    statusCountdown,
-    setStatusCountdown,
-  ] = useState(0);
-
-  const [
-    statusOfflineMessage,
-    setStatusOfflineMessage,
-  ] = useState(false);
-
-  const statusTimeoutRef =
-    useRef<ReturnType<
-      typeof setTimeout
-    > | null>(null);
-
-  const statusCountdownRef =
-    useRef<ReturnType<
-      typeof setInterval
-    > | null>(null);
-
-  const statusRequestStartedAtRef =
-    useRef<number | null>(
-      null
+  const sortedCapabilities = useMemo(() => {
+    return [...capabilities].sort(
+      (a, b) =>
+        (a.sort_order ?? 0) -
+        (b.sort_order ?? 0)
     );
+  }, [capabilities]);
 
-  /* ===================================================
-     SECURITY
-  =================================================== */
+  const glass = isNight
+    ? "border-white/15 bg-black/[0.30] text-white"
+    : "border-black/10 bg-white/[0.55] text-black";
 
-  const [
-    securityState,
-    setSecurityState,
-  ] = useState<SecurityState>(
-    "active"
-  );
+  const glassSoft = isNight
+    ? "border-white/10 bg-white/[0.07]"
+    : "border-black/10 bg-white/[0.42]";
 
-  const [
-    securityReason,
-    setSecurityReason,
-  ] = useState<
-    string | null
-  >(null);
+  const muted = isNight
+    ? "text-white/50"
+    : "text-black/50";
 
-  const [
-    securityLoading,
-    setSecurityLoading,
-  ] = useState(false);
+  const loadDevice = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError("");
 
-  const [
-    securityMessage,
-    setSecurityMessage,
-  ] = useState("");
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-  const [
-    recoveryCodes,
-    setRecoveryCodes,
-  ] = useState<string[]>(
-    []
-  );
+      if (userError || !user) {
+        router.replace("/auth/login");
+        return;
+      }
 
-  const [
-    recoveryLoading,
-    setRecoveryLoading,
-  ] = useState(false);
+      const { data: deviceData, error: deviceError } =
+        await supabase
+          .from("devices")
+          .select(
+            "id,room_id,device_id,name,device_type,is_online,last_seen_at,created_at,updated_at"
+          )
+          .eq("id", deviceRowId)
+          .eq("room_id", roomId)
+          .single();
 
-  const [
-    copiedCode,
-    setCopiedCode,
-  ] = useState<
-    string | null
-  >(null);
+      if (deviceError) throw deviceError;
 
-  /* ===================================================
-     CLEAR STATUS
-  =================================================== */
+      setDevice(deviceData);
 
-  function clearStatusWaiting() {
-    if (
-      statusTimeoutRef.current
-    ) {
-      clearTimeout(
-        statusTimeoutRef.current
+      const {
+        data: capabilityData,
+        error: capabilityError,
+      } = await supabase
+        .from("device_capabilities")
+        .select(
+          "id,device_id,control_id,name,type,config,created_at,sort_order,enabled"
+        )
+        .eq("device_id", deviceData.device_id)
+        .eq("enabled", true)
+        .order("sort_order", { ascending: true });
+
+      if (capabilityError) throw capabilityError;
+
+      setCapabilities(capabilityData ?? []);
+
+      const { data: statusData, error: statusError } =
+        await supabase
+          .from("device_status")
+          .select(
+            "id,device_id,status_data,updated_at,online,last_seen_at"
+          )
+          .eq("device_id", deviceData.device_id)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+      if (statusError) throw statusError;
+
+      setStatus(statusData);
+
+      const { data: eventData, error: eventError } =
+        await supabase
+          .from("device_events")
+          .select(
+            "id,device_id,control_id,event_type,value,created_at,source"
+          )
+          .eq("device_id", deviceData.device_id)
+          .order("created_at", { ascending: false })
+          .limit(20);
+
+      if (eventError) throw eventError;
+
+      setEvents(eventData ?? []);
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        err?.message ?? "Failed to load device."
       );
-
-      statusTimeoutRef.current =
-        null;
+    } finally {
+      setLoading(false);
     }
+  }, [deviceRowId, roomId, router]);
 
-    if (
-      statusCountdownRef.current
-    ) {
-      clearInterval(
-        statusCountdownRef.current
-      );
+  const loadSecurity = useCallback(async () => {
+    if (!device?.device_id) return;
 
-      statusCountdownRef.current =
-        null;
-    }
+    try {
+      setSecurityLoading(true);
+      setSecurityError("");
 
-    statusRequestStartedAtRef.current =
-      null;
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-    setStatusRequestWaiting(
-      false
-    );
+      if (!session) {
+        setSecurityError("Please login again.");
+        return;
+      }
 
-    setStatusCountdown(0);
-
-    setSendingCommand(
-      (current) =>
-        current ===
-        "__STATUS__"
-          ? null
-          : current
-    );
-  }
-
-  /* ===================================================
-     STATUS WAIT
-  =================================================== */
-
-  function startStatusWaiting() {
-    if (
-      statusTimeoutRef.current
-    ) {
-      clearTimeout(
-        statusTimeoutRef.current
-      );
-    }
-
-    if (
-      statusCountdownRef.current
-    ) {
-      clearInterval(
-        statusCountdownRef.current
-      );
-    }
-
-    const startedAt =
-      Date.now();
-
-    statusRequestStartedAtRef.current =
-      startedAt;
-
-    setStatusRequestWaiting(
-      true
-    );
-
-    setStatusCountdown(50);
-
-    setStatusOfflineMessage(
-      false
-    );
-
-    statusCountdownRef.current =
-      setInterval(() => {
-        const elapsed =
-          Math.floor(
-            (Date.now() -
-              startedAt) /
-              1000
-          );
-
-        const remaining =
-          Math.max(
-            0,
-            50 - elapsed
-          );
-
-        setStatusCountdown(
-          remaining
-        );
-
-        if (
-          remaining <= 0 &&
-          statusCountdownRef.current
-        ) {
-          clearInterval(
-            statusCountdownRef.current
-          );
-
-          statusCountdownRef.current =
-            null;
+      const response = await fetch(
+        `/api/device/security?device_id=${encodeURIComponent(
+          device.device_id
+        )}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
         }
-      }, 1000);
+      );
 
-    statusTimeoutRef.current =
-      setTimeout(() => {
-        setStatusRequestWaiting(
-          false
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ??
+            "Failed to load security state."
         );
+      }
 
-        setStatusCountdown(0);
-
-        setSendingCommand(
-          (current) =>
-            current ===
-            "__STATUS__"
-              ? null
-              : current
+      if (data?.state) {
+        setSecurityState(
+          data.state as SecurityState
         );
+      }
+    } catch (err: any) {
+      console.error(err);
+      setSecurityError(
+        err?.message ??
+          "Failed to load security state."
+      );
+    } finally {
+      setSecurityLoading(false);
+    }
+  }, [device?.device_id]);
 
-        setStatusOfflineMessage(
-          true
-        );
+  useEffect(() => {
+    loadDevice();
+  }, [loadDevice]);
 
-        if (
-          statusCountdownRef.current
-        ) {
-          clearInterval(
-            statusCountdownRef.current
-          );
+  useEffect(() => {
+    if (!device?.device_id) return;
 
-          statusCountdownRef.current =
-            null;
+    loadSecurity();
+
+    const statusChannel = supabase
+      .channel(
+        `device-status-${device.device_id}`
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "device_status",
+          filter: `device_id=eq.${device.device_id}`,
+        },
+        (
+          payload: RealtimePostgresChangesPayload<DeviceStatus>
+        ) => {
+          if (payload.eventType === "DELETE") {
+            return;
+          }
+
+          if (payload.new) {
+            setStatus(
+              payload.new as DeviceStatus
+            );
+          }
         }
+      )
+      .subscribe();
 
-        statusTimeoutRef.current =
-          null;
-      }, STATUS_TIMEOUT_MS);
-  }
+    const eventChannel = supabase
+      .channel(
+        `device-events-${device.device_id}`
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "device_events",
+          filter: `device_id=eq.${device.device_id}`,
+        },
+        (
+          payload: RealtimePostgresChangesPayload<DeviceEvent>
+        ) => {
+          if (payload.eventType !== "INSERT")
+            return;
 
-  /* ===================================================
-     FRESH STATUS
-  =================================================== */
+          if (payload.new) {
+            setEvents((current) =>
+              [
+                payload.new as DeviceEvent,
+                ...current,
+              ].slice(0, 20)
+            );
+          }
+        }
+      )
+      .subscribe();
 
-  function isFreshStatusResponse(
-    incoming: DeviceStatus
-  ) {
-    const started =
-      statusRequestStartedAtRef.current;
+    return () => {
+      supabase.removeChannel(statusChannel);
+      supabase.removeChannel(eventChannel);
+    };
+  }, [device?.device_id, loadSecurity]);
 
-    if (!started) {
+  const sendCommand = async (
+    controlId: string,
+    value: any
+  ): Promise<boolean> => {
+    if (!device?.device_id) return false;
+
+    if (commandsBlocked) {
+      setError(
+        `Commands are blocked because the device is ${getSecurityLabel(
+          securityState
+        ).toLowerCase()}.`
+      );
       return false;
     }
 
-    const updated =
-      new Date(
-        incoming.updated_at
-      ).getTime();
+    try {
+      setError("");
 
-    if (
-      Number.isNaN(updated)
-    ) {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        router.replace("/auth/login");
+        return false;
+      }
+
+      const response = await fetch(
+        "/api/command",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            device_id: device.device_id,
+            message: JSON.stringify({
+              control_id: controlId,
+              value,
+            }),
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ??
+            "Failed to send command."
+        );
+      }
+
+      return true;
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        err?.message ??
+          "Failed to send command."
+      );
       return false;
     }
+  };
 
-    return updated >= started;
-  }
+  const requestCurrentStatus = async () => {
+    if (!device?.device_id) return;
 
-  /* ===================================================
-     LOAD SECURITY
-  =================================================== */
-
-  async function loadSecurity() {
-    if (!deviceId) {
+    if (commandsBlocked) {
+      setError(
+        "Status request is blocked while the device is locked."
+      );
       return;
     }
 
     try {
-      const response =
-        await fetch(
-          `/api/device/security?device_id=${encodeURIComponent(
-            deviceId
-          )}`,
-          {
-            method: "GET",
-            cache: "no-store",
-          }
-        );
+      setStatusLoading(true);
+      setError("");
 
-      const data =
-        await response.json();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        router.replace("/auth/login");
+        return;
+      }
+
+      const previousUpdatedAt = status?.updated_at
+        ? new Date(
+            status.updated_at
+          ).getTime()
+        : 0;
+
+      const response = await fetch(
+        "/api/command",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            device_id: device.device_id,
+            message: "STATUS",
+          }),
+        }
+      );
+
+      const data = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          data?.error ||
-            "Unable to load security state."
+          data?.error ??
+            "Failed to request status."
         );
       }
 
-      setSecurityState(
-        data?.state ||
-          "active"
-      );
+      const started = Date.now();
 
-      setSecurityReason(
-        data?.data?.reason ??
-          null
-      );
+      while (
+        Date.now() - started <
+        STATUS_TIMEOUT_MS
+      ) {
+        const { data: latestStatus } =
+          await supabase
+            .from("device_status")
+            .select(
+              "id,device_id,status_data,updated_at,online,last_seen_at"
+            )
+            .eq(
+              "device_id",
+              device.device_id
+            )
+            .order("updated_at", {
+              ascending: false,
+            })
+            .limit(1)
+            .maybeSingle();
+
+        if (latestStatus) {
+          const updatedTime = new Date(
+            latestStatus.updated_at
+          ).getTime();
+
+          if (updatedTime > previousUpdatedAt) {
+            setStatus(latestStatus);
+            break;
+          }
+        }
+
+        await new Promise((resolve) =>
+          setTimeout(resolve, 1000)
+        );
+      }
     } catch (err: any) {
       console.error(err);
+      setError(
+        err?.message ??
+          "Failed to request status."
+      );
+    } finally {
+      setStatusLoading(false);
     }
-  }
+  };
 
-  /* ===================================================
-     SECURITY ACTION
-  =================================================== */
-
-  async function securityAction(
+  const securityAction = async (
     action:
       | "lock"
       | "unlock"
       | "emergency_lock"
       | "lost"
       | "stolen"
-  ) {
-    if (!device) {
-      return;
-    }
+  ) => {
+    if (!device?.device_id) return;
 
     const labels: Record<
       string,
       string
     > = {
-      lock: "Lock",
-      unlock: "Unlock",
+      lock: "Lock this device?",
+      unlock: "Unlock this device?",
       emergency_lock:
-        "Emergency Lock",
-      lost: "Lost",
-      stolen: "Stolen",
+        "Enable emergency lock?",
+      lost: "Mark this device as LOST?",
+      stolen:
+        "Mark this device as STOLEN?",
     };
 
-    const confirmed =
-      window.confirm(
-        `Are you sure you want to ${labels[action]} this device?`
-      );
-
-    if (!confirmed) {
+    if (
+      !window.confirm(
+        labels[action] ?? "Continue?"
+      )
+    ) {
       return;
     }
 
-    setSecurityLoading(
-      true
-    );
-
-    setSecurityMessage("");
-
-    setError("");
-
     try {
-      const response =
-        await fetch(
-          "/api/device/security",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
-            body: JSON.stringify({
-              device_id:
-                device.device_id,
-              action,
-            }),
-          }
-        );
+      setSecurityLoading(true);
+      setSecurityError("");
 
-      const data =
-        await response.json();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        setSecurityError(
+          "Please login again."
+        );
+        return;
+      }
+
+      const response = await fetch(
+        "/api/device/security",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            device_id: device.device_id,
+            action,
+          }),
+        }
+      );
+
+      const data = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          data?.error ||
+          data?.error ??
             "Security action failed."
         );
       }
 
-      setSecurityMessage(
-        `Device ${labels[
-          action
-        ].toLowerCase()} action completed.`
-      );
-
-      await loadSecurity();
+      if (data?.state) {
+        setSecurityState(
+          data.state as SecurityState
+        );
+      } else {
+        await loadSecurity();
+      }
     } catch (err: any) {
       console.error(err);
-
-      setError(
-        err?.message ||
+      setSecurityError(
+        err?.message ??
           "Security action failed."
       );
     } finally {
-      setSecurityLoading(
-        false
-      );
+      setSecurityLoading(false);
     }
-  }
+  };
 
-  /* ===================================================
-     GENERATE RECOVERY CODES
-  =================================================== */
+  const generateRecoveryCodes =
+    async () => {
+      if (!device?.device_id) return;
 
-  async function generateRecoveryCodes() {
-    if (!device) {
-      return;
-    }
+      if (
+        !window.confirm(
+          "Generate a new recovery-code set? Any previous recovery codes will be invalidated."
+        )
+      ) {
+        return;
+      }
 
-    const confirmed =
-      window.confirm(
-        "Generate a new recovery-code set? The previous recovery codes will immediately become invalid."
-      );
+      try {
+        setRecoveryLoading(true);
+        setSecurityError("");
+        setRecoveryCodes([]);
+        setRecoveryWarning("");
+        setCopied(false);
 
-    if (!confirmed) {
-      return;
-    }
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-    setRecoveryLoading(
-      true
-    );
+        if (!session) {
+          setSecurityError(
+            "Please login again."
+          );
+          return;
+        }
 
-    setError("");
-
-    setSecurityMessage("");
-
-    setRecoveryCodes([]);
-
-    try {
-      const response =
-        await fetch(
+        const response = await fetch(
           "/api/device/recovery-codes",
           {
             method: "POST",
             headers: {
               "Content-Type":
                 "application/json",
+              Authorization: `Bearer ${session.access_token}`,
             },
             body: JSON.stringify({
               device_id:
@@ -649,880 +827,155 @@ export default function DevicePage() {
           }
         );
 
-      const data =
-        (await response.json()) as RecoveryResponse;
+        const data: RecoveryResponse =
+          await response.json();
 
-      if (!response.ok) {
-        throw new Error(
-          data?.error ||
-            "Unable to generate recovery codes."
-        );
-      }
-
-      let codes: string[] =
-        [];
-
-      if (
-        Array.isArray(
-          data.codes
-        )
-      ) {
-        codes =
-          data.codes;
-      } else if (
-        data.codes &&
-        typeof data.codes ===
-          "object" &&
-        Array.isArray(
-          data.codes.codes
-        )
-      ) {
-        codes =
-          data.codes.codes;
-      }
-
-      setRecoveryCodes(
-        codes
-      );
-
-      setSecurityMessage(
-        "New recovery codes generated. Save them now — they cannot be retrieved later."
-      );
-    } catch (err: any) {
-      console.error(err);
-
-      setError(
-        err?.message ||
-          "Unable to generate recovery codes."
-      );
-    } finally {
-      setRecoveryLoading(
-        false
-      );
-    }
-  }
-
-  /* ===================================================
-     COPY
-  =================================================== */
-
-  async function copyCode(
-    code: string
-  ) {
-    try {
-      await navigator.clipboard.writeText(
-        code
-      );
-
-      setCopiedCode(
-        code
-      );
-
-      setTimeout(
-        () =>
-          setCopiedCode(
-            null
-          ),
-        1500
-      );
-    } catch {
-      setError(
-        "Unable to copy code."
-      );
-    }
-  }
-
-  /* ===================================================
-     LOAD DEVICE
-  =================================================== */
-
-  async function loadDevice(
-    showRefresh = false
-  ) {
-    if (showRefresh) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-
-    setError("");
-
-    try {
-      const {
-        data: {
-          session,
-        },
-      } =
-        await supabase.auth.getSession();
-
-      if (!session) {
-        router.replace(
-          "/auth/login"
-        );
-
-        return;
-      }
-
-      /* ===============================================
-         DEVICE
-      =============================================== */
-
-      const {
-        data: deviceData,
-        error: deviceError,
-      } =
-        await supabase
-          .from("devices")
-          .select(
-            `
-              id,
-              room_id,
-              device_id,
-              name,
-              device_type,
-              is_online,
-              last_seen_at,
-              created_at,
-              updated_at
-            `
-          )
-          .eq(
-            "id",
-            deviceId
-          )
-          .eq(
-            "room_id",
-            roomId
-          )
-          .single();
-
-      if (deviceError) {
-        throw deviceError;
-      }
-
-      setDevice(
-        deviceData as Device
-      );
-
-      /* ===============================================
-         CAPABILITIES
-      =============================================== */
-
-      const {
-        data:
-          capabilitiesData,
-        error:
-          capabilitiesError,
-      } =
-        await supabase
-          .from(
-            "device_capabilities"
-          )
-          .select(
-            `
-              id,
-              device_id,
-              control_id,
-              name,
-              type,
-              config,
-              created_at,
-              sort_order,
-              enabled
-            `
-          )
-          .eq(
-            "device_id",
-            deviceData.device_id
-          )
-          .eq(
-            "enabled",
-            true
-          )
-          .order(
-            "sort_order",
-            {
-              ascending: true,
-            }
+        if (!response.ok) {
+          throw new Error(
+            data?.error ??
+              "Failed to generate recovery codes."
           );
-
-      if (
-        capabilitiesError
-      ) {
-        throw capabilitiesError;
-      }
-
-      const loadedCapabilities =
-        (capabilitiesData ||
-          []) as Capability[];
-
-      setCapabilities(
-        loadedCapabilities
-      );
-
-      setControlValues(
-        (current) => {
-          const next = {
-            ...current,
-          };
-
-          loadedCapabilities.forEach(
-            (capability) => {
-              const config =
-                capability.config ||
-                {};
-
-              if (
-                [
-                  "range",
-                  "slider",
-                  "number",
-                  "numeric",
-                ].includes(
-                  capability.type
-                )
-              ) {
-                if (
-                  next[
-                    capability
-                      .control_id
-                  ] ===
-                  undefined
-                ) {
-                  next[
-                    capability
-                      .control_id
-                  ] =
-                    Number(
-                      config.default ??
-                        config.min ??
-                        0
-                    );
-                }
-              }
-            }
-          );
-
-          return next;
         }
-      );
 
-      /* ===============================================
-         STATUS
-      =============================================== */
+        let codes: string[] = [];
 
-      const {
-        data: statusData,
-        error: statusError,
-      } =
-        await supabase
-          .from(
-            "device_status"
-          )
-          .select(
-            `
-              id,
-              device_id,
-              status_data,
-              updated_at,
-              online,
-              last_seen_at
-            `
-          )
-          .eq(
-            "device_id",
-            deviceData.device_id
-          )
-          .order(
-            "updated_at",
-            {
-              ascending: false,
-            }
-          )
-          .limit(1)
-          .maybeSingle();
+        if (Array.isArray(data.codes)) {
+          codes = data.codes;
+        } else if (data.codes?.codes) {
+          codes = data.codes.codes;
+        }
 
-      if (statusError) {
-        throw statusError;
-      }
+        setRecoveryCodes(codes);
 
-      setStatus(
-        statusData
-          ? (statusData as DeviceStatus)
-          : null
-      );
-
-      /* ===============================================
-         EVENTS
-      =============================================== */
-
-      const {
-        data: eventsData,
-        error: eventsError,
-      } =
-        await supabase
-          .from(
-            "device_events"
-          )
-          .select(
-            `
-              id,
-              device_id,
-              control_id,
-              event_type,
-              value,
-              created_at,
-              source
-            `
-          )
-          .eq(
-            "device_id",
-            deviceData.device_id
-          )
-          .order(
-            "created_at",
-            {
-              ascending: false,
-            }
-          )
-          .limit(20);
-
-      if (eventsError) {
-        throw eventsError;
-      }
-
-      setEvents(
-        (eventsData ||
-          []) as DeviceEvent[]
-      );
-
-      await loadSecurity();
-    } catch (err: any) {
-      console.error(err);
-
-      setError(
-        err?.message ||
-          "Unable to load device."
-      );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }
-
-  /* ===================================================
-     INITIAL LOAD
-  =================================================== */
-
-  useEffect(() => {
-    if (
-      deviceId &&
-      roomId
-    ) {
-      loadDevice();
-    }
-  }, [
-    deviceId,
-    roomId,
-  ]);
-
-  /* ===================================================
-     CLEANUP
-  =================================================== */
-
-  useEffect(() => {
-    return () => {
-      if (
-        statusTimeoutRef.current
-      ) {
-        clearTimeout(
-          statusTimeoutRef.current
+        setRecoveryWarning(
+          data.warning ??
+            "Save these codes now. They cannot be retrieved later."
         );
+      } catch (err: any) {
+        console.error(err);
+        setSecurityError(
+          err?.message ??
+            "Failed to generate recovery codes."
+        );
+      } finally {
+        setRecoveryLoading(false);
       }
+    };
 
-      if (
-        statusCountdownRef.current
-      ) {
-        clearInterval(
-          statusCountdownRef.current
+  const copyRecoveryCodes =
+    async () => {
+      if (!recoveryCodes.length) return;
+
+      try {
+        await navigator.clipboard.writeText(
+          recoveryCodes.join("\n")
+        );
+
+        setCopied(true);
+
+        window.setTimeout(() => {
+          setCopied(false);
+        }, 2000);
+      } catch {
+        setSecurityError(
+          "Could not copy recovery codes."
         );
       }
     };
-  }, []);
 
-  /* ===================================================
-     REALTIME
-  =================================================== */
-
-  useEffect(() => {
-    if (
-      !device?.device_id
-    ) {
-      return;
-    }
-
-    const channel =
-      supabase
-        .channel(
-          `device-dashboard-${device.device_id}`
-        )
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table:
-              "device_status",
-            filter:
-              `device_id=eq.${device.device_id}`,
-          },
-          (payload) => {
-            if (
-              payload.eventType ===
-              "DELETE"
-            ) {
-              setStatus(null);
-
-              return;
-            }
-
-            if (
-              payload.new
-            ) {
-              const incoming =
-                payload.new as DeviceStatus;
-
-              setStatus(
-                incoming
-              );
-
-              if (
-                statusRequestWaiting &&
-                isFreshStatusResponse(
-                  incoming
-                )
-              ) {
-                clearStatusWaiting();
-
-                setStatusOfflineMessage(
-                  false
-                );
-
-                setCommandMessage(
-                  "Status updated from ESP."
-                );
-              }
-            }
-          }
-        )
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table:
-              "device_events",
-            filter:
-              `device_id=eq.${device.device_id}`,
-          },
-          (payload) => {
-            if (
-              payload.eventType ===
-              "INSERT"
-            ) {
-              setEvents(
-                (current) =>
-                  [
-                    payload.new as DeviceEvent,
-                    ...current,
-                  ].slice(
-                    0,
-                    20
-                  )
-              );
-            }
-          }
-        )
-        .subscribe();
-
-    return () => {
-      supabase.removeChannel(
-        channel
-      );
-    };
-  }, [
-    device?.device_id,
-    statusRequestWaiting,
-  ]);
-
-  /* ===================================================
-     SEND COMMAND
-  =================================================== */
-
-  async function sendCommand(
-    capability: Capability,
-    value: any = true
-  ) {
-    if (!device) {
-      return;
-    }
-
-    setError("");
-
-    setCommandMessage("");
-
-    setStatusOfflineMessage(
-      false
-    );
-
-    setSendingCommand(
-      capability.control_id
-    );
-
-    try {
-      const {
-        data: {
-          session,
-        },
-      } =
-        await supabase.auth.getSession();
-
-      if (!session) {
-        router.replace(
-          "/auth/login"
-        );
-
-        return;
-      }
-
-      const commandText =
-        JSON.stringify({
-          control_id:
-            capability.control_id,
-          value,
-        });
-
-      const response =
-        await fetch(
-          "/api/command",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
-            body: JSON.stringify({
-              device_id:
-                device.device_id,
-              message:
-                commandText,
-            }),
-          }
-        );
-
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data?.error ||
-            "Unable to send command."
-        );
-      }
-
-      setCommandMessage(
-        `${capability.name} command sent successfully.`
-      );
-    } catch (err: any) {
-      console.error(err);
-
-      setError(
-        err?.message ||
-          "Unable to send command."
-      );
-    } finally {
-      setSendingCommand(
-        null
-      );
-    }
-  }
-
-  /* ===================================================
-     STATUS REQUEST
-  =================================================== */
-
-  async function requestCurrentStatus() {
-    if (!device) {
-      return;
-    }
-
-    setError("");
-
-    setCommandMessage("");
-
-    setStatusOfflineMessage(
-      false
-    );
-
-    setSendingCommand(
-      "__STATUS__"
-    );
-
-    try {
-      const {
-        data: {
-          session,
-        },
-      } =
-        await supabase.auth.getSession();
-
-      if (!session) {
-        router.replace(
-          "/auth/login"
-        );
-
-        return;
-      }
-
-      startStatusWaiting();
-
-      const response =
-        await fetch(
-          "/api/command",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
-            body: JSON.stringify({
-              device_id:
-                device.device_id,
-              message:
-                "STATUS",
-            }),
-          }
-        );
-
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-        clearStatusWaiting();
-
-        throw new Error(
-          data?.error ||
-            "Unable to request device status."
-        );
-      }
-
-      setCommandMessage(
-        "Status request sent. Waiting for ESP response..."
-      );
-    } catch (err: any) {
-      console.error(err);
-
-      clearStatusWaiting();
-
-      setError(
-        err?.message ||
-          "Unable to request device status."
-      );
-    }
-  }
-
-  /* ===================================================
-     VALUE
-  =================================================== */
-
-  function updateControlValue(
-    controlId: string,
-    value: number
-  ) {
-    setControlValues(
-      (current) => ({
-        ...current,
-        [controlId]:
-          value,
-      })
-    );
-  }
-
-  /* ===================================================
-     DATE
-  =================================================== */
-
-  function formatDate(
-    date: string | null
-  ) {
-    if (!date) {
-      return "Never";
-    }
-
-    try {
-      return new Date(
-        date
-      ).toLocaleString(
-        "en-PK",
-        {
-          dateStyle:
-            "medium",
-          timeStyle:
-            "short",
-        }
-      );
-    } catch {
-      return date;
-    }
-  }
-
-  /* ===================================================
-     EVENT
-  =================================================== */
-
-  function eventText(
-    event: DeviceEvent
-  ) {
-    if (
-      event.control_id
-    ) {
-      return `${event.control_id} • ${event.event_type}`;
-    }
-
-    return event.event_type;
-  }
-
-  /* ===================================================
-     BOOLEAN STATUS
-  =================================================== */
-
-  function getBooleanStatus(
-    controlId: string
-  ) {
-    const value =
-      status?.status_data?.[
-        controlId
-      ];
-
-    return typeof value ===
-      "boolean"
-      ? value
-      : false;
-  }
-
-  /* ===================================================
-     CAPABILITY
-  =================================================== */
-
-  function renderCapability(
+  const renderControl = (
     capability: Capability
-  ) {
-    const config =
-      capability.config ||
-      {};
-
-    const type =
-      capability.type.toLowerCase();
-
-    const busy =
-      sendingCommand ===
+  ) => {
+    const controlId =
       capability.control_id;
 
+    const type =
+      capability.type?.toLowerCase();
+
+    const config =
+      capability.config ?? {};
+
+    const currentValue =
+      status?.status_data?.[
+        controlId
+      ] ??
+      config.default ??
+      false;
+
+    const disabled =
+      commandsBlocked;
+
     if (
-      [
-        "switch",
-        "toggle",
-        "button",
-      ].includes(type)
+      type === "switch" ||
+      type === "toggle" ||
+      type === "boolean"
     ) {
-      const currentState =
-        getBooleanStatus(
-          capability.control_id
-        );
+      const checked =
+        Boolean(currentValue);
 
       return (
         <button
+          key={capability.id}
           type="button"
-          disabled={
-            busy ||
-            securityState !==
-              "active"
-          }
+          disabled={disabled}
           onClick={() =>
             sendCommand(
-              capability,
-              !currentState
+              controlId,
+              !checked
             )
           }
-          className="flex w-full items-center justify-between rounded-2xl border border-slate-100 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+          className={`group relative overflow-hidden rounded-[26px] border p-5 text-left backdrop-blur-2xl shadow-xl transition duration-300 ${glass} ${
+            disabled
+              ? "cursor-not-allowed opacity-50"
+              : "hover:-translate-y-0.5 hover:shadow-2xl"
+          }`}
         >
-          <div className="flex items-center gap-3">
-            <div
-              className="flex h-11 w-11 items-center justify-center rounded-xl"
-              style={{
-                backgroundColor:
-                  currentState
-                    ? "#22c55e15"
-                    : `${THEME_COLOR}12`,
-                color:
-                  currentState
-                    ? "#22c55e"
-                    : THEME_COLOR,
-              }}
-            >
-              {busy ? (
-                <Loader2
-                  size={20}
-                  className="animate-spin"
-                />
-              ) : (
-                <Power size={20} />
-              )}
+          <div
+            className="absolute inset-0 opacity-0 transition group-hover:opacity-100"
+            style={{
+              background: `radial-gradient(circle at 90% 10%, ${THEME_COLOR}22, transparent 45%)`,
+            }}
+          />
+
+          <div className="relative flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="truncate font-semibold">
+                {capability.name}
+              </div>
+
+              <div
+                className={`mt-1 text-xs ${
+                  checked
+                    ? "text-emerald-400"
+                    : muted
+                }`}
+              >
+                {checked ? "ON" : "OFF"}
+              </div>
             </div>
 
-            <div>
-              <p className="font-semibold text-slate-600">
-                {
-                  capability.name
-                }
-              </p>
-
-              <p className="mt-0.5 text-xs text-slate-400">
-                {
-                  config.description ||
-                  "Control device"
-                }
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
             <div
-              className={`rounded-xl px-3 py-2 text-xs font-bold ${
-                currentState
-                  ? "bg-green-50 text-green-500"
-                  : "bg-slate-100 text-slate-400"
+              className={`relative h-7 w-12 shrink-0 rounded-full transition ${
+                checked
+                  ? "bg-[var(--theme)]"
+                  : isNight
+                  ? "bg-white/15"
+                  : "bg-black/10"
               }`}
+              style={
+                {
+                  "--theme":
+                    THEME_COLOR,
+                } as React.CSSProperties
+              }
             >
-              {currentState
-                ? "ON"
-                : "OFF"}
-            </div>
-
-            <div
-              className="rounded-xl px-3 py-2 text-xs font-semibold text-white"
-              style={{
-                backgroundColor:
-                  currentState
-                    ? "#ef4444"
-                    : THEME_COLOR,
-              }}
-            >
-              {busy
-                ? "Sending"
-                : currentState
-                ? "Turn OFF"
-                : "Turn ON"}
+              <div
+                className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-md transition ${
+                  checked
+                    ? "left-6"
+                    : "left-1"
+                }`}
+              />
             </div>
           </div>
         </button>
@@ -1533,139 +986,72 @@ export default function DevicePage() {
       type === "range" ||
       type === "slider"
     ) {
-      const min =
-        Number(
-          config.min ?? 0
-        );
+      const min = Number(
+        config.min ?? 0
+      );
 
-      const max =
-        Number(
-          config.max ?? 100
-        );
+      const max = Number(
+        config.max ?? 100
+      );
 
-      const step =
-        Number(
-          config.step ?? 1
-        );
+      const step = Number(
+        config.step ?? 1
+      );
 
-      const unit =
-        config.unit || "";
-
-      const value =
-        controlValues[
-          capability.control_id
-        ] ??
-        Number(
-          config.default ??
-            min
-        );
+      const value = Number(
+        currentValue ?? min
+      );
 
       return (
-        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-semibold text-slate-600">
-                {
-                  capability.name
-                }
-              </p>
+        <div
+          key={capability.id}
+          className={`rounded-[26px] border p-5 backdrop-blur-2xl shadow-xl ${glass}`}
+        >
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <span className="font-semibold">
+              {capability.name}
+            </span>
 
-              <p className="mt-1 text-xs text-slate-400">
-                {
-                  config.description ||
-                  "Adjust value"
-                }
-              </p>
-            </div>
-
-            <div
-              className="rounded-xl px-3 py-2 text-sm font-semibold"
+            <span
+              className="rounded-xl border px-3 py-1.5 text-xs font-bold"
               style={{
-                backgroundColor:
-                  `${THEME_COLOR}12`,
-                color:
-                  THEME_COLOR,
+                backgroundColor: `${THEME_COLOR}18`,
+                borderColor: `${THEME_COLOR}35`,
+                color: THEME_COLOR,
               }}
             >
               {value}
-              {unit}
-            </div>
+            </span>
           </div>
 
-          <div className="mt-5">
-            <input
-              type="range"
-              min={min}
-              max={max}
-              step={step}
-              value={value}
-              disabled={
-                securityState !==
-                "active"
-              }
-              onChange={(event) =>
-                updateControlValue(
-                  capability.control_id,
-                  Number(
-                    event.target
-                      .value
-                  )
-                )
-              }
-              className="w-full"
-              style={{
-                accentColor:
-                  THEME_COLOR,
-              }}
-            />
-
-            <div className="mt-2 flex justify-between text-xs text-slate-300">
-              <span>
-                {min}
-                {unit}
-              </span>
-
-              <span>
-                {max}
-                {unit}
-              </span>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            disabled={
-              busy ||
-              securityState !==
-                "active"
-            }
-            onClick={() =>
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            disabled={disabled}
+            onChange={(e) =>
               sendCommand(
-                capability,
-                value
+                controlId,
+                Number(
+                  e.target.value
+                )
               )
             }
-            className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-60"
+            className="w-full"
             style={{
-              backgroundColor:
+              accentColor:
                 THEME_COLOR,
             }}
+          />
+
+          <div
+            className={`mt-2 flex justify-between text-[10px] ${muted}`}
           >
-            {busy ? (
-              <>
-                <Loader2
-                  size={17}
-                  className="animate-spin"
-                />
-                Sending...
-              </>
-            ) : (
-              <>
-                <Zap size={17} />
-                Apply
-              </>
-            )}
-          </button>
+            <span>{min}</span>
+            <span>{max}</span>
+          </div>
         </div>
       );
     }
@@ -1674,1237 +1060,1083 @@ export default function DevicePage() {
       type === "number" ||
       type === "numeric"
     ) {
-      const unit =
-        config.unit || "";
-
-      const value =
-        controlValues[
-          capability.control_id
-        ] ??
-        Number(
-          config.default ?? 0
-        );
-
       return (
-        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-semibold text-slate-600">
-                {
-                  capability.name
-                }
-              </p>
-
-              <p className="mt-1 text-xs text-slate-400">
-                {
-                  config.description ||
-                  "Set value"
-                }
-              </p>
-            </div>
-
-            <Gauge
-              size={20}
-              style={{
-                color:
-                  THEME_COLOR,
-              }}
-            />
+        <div
+          key={capability.id}
+          className={`rounded-[26px] border p-5 backdrop-blur-2xl shadow-xl ${glass}`}
+        >
+          <div className="mb-3 font-semibold">
+            {capability.name}
           </div>
 
-          <div className="mt-4 flex gap-3">
-            <div className="relative flex-1">
-              <input
-                type="number"
-                value={value}
-                disabled={
-                  securityState !==
-                  "active"
-                }
-                onChange={(event) =>
-                  updateControlValue(
-                    capability.control_id,
-                    Number(
-                      event.target
-                        .value
-                    )
-                  )
-                }
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 outline-none"
-              />
-
-              {unit && (
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-400">
-                  {unit}
-                </span>
-              )}
-            </div>
-
-            <button
-              type="button"
-              disabled={
-                busy ||
-                securityState !==
-                  "active"
-              }
-              onClick={() =>
-                sendCommand(
-                  capability,
-                  value
+          <input
+            type="number"
+            value={currentValue ?? ""}
+            min={config.min}
+            max={config.max}
+            step={config.step ?? 1}
+            disabled={disabled}
+            onChange={(e) =>
+              sendCommand(
+                controlId,
+                Number(
+                  e.target.value
                 )
-              }
-              className="flex min-w-[80px] items-center justify-center rounded-xl px-5 text-sm font-semibold text-white disabled:opacity-60"
-              style={{
-                backgroundColor:
-                  THEME_COLOR,
-              }}
-            >
-              {busy ? (
-                <Loader2
-                  size={18}
-                  className="animate-spin"
-                />
-              ) : (
-                "Set"
-              )}
-            </button>
-          </div>
+              )
+            }
+            className={`w-full rounded-2xl border px-4 py-3 outline-none backdrop-blur-xl ${
+              isNight
+                ? "border-white/10 bg-white/[0.07]"
+                : "border-black/10 bg-white/40"
+            }`}
+          />
         </div>
       );
     }
 
     return (
       <button
+        key={capability.id}
         type="button"
-        disabled={
-          busy ||
-          securityState !==
-            "active"
-        }
+        disabled={disabled}
         onClick={() =>
           sendCommand(
-            capability,
-            true
+            controlId,
+            config.value ?? true
           )
         }
-        className="rounded-2xl border border-slate-100 bg-white p-5 text-left shadow-sm disabled:opacity-60"
+        className={`group relative overflow-hidden rounded-[26px] border p-5 text-left backdrop-blur-2xl shadow-xl transition duration-300 ${glass} ${
+          disabled
+            ? "cursor-not-allowed opacity-50"
+            : "hover:-translate-y-0.5 hover:shadow-2xl"
+        }`}
       >
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-semibold text-slate-600">
-              {
-                capability.name
-              }
-            </p>
+        <div
+          className="absolute inset-0 opacity-0 transition group-hover:opacity-100"
+          style={{
+            background: `radial-gradient(circle at 90% 10%, ${THEME_COLOR}20, transparent 50%)`,
+          }}
+        />
 
-            <p className="mt-1 text-xs text-slate-400">
-              {
-                capability.type
-              }
-            </p>
-          </div>
-
-          {busy ? (
-            <Loader2
-              size={19}
-              className="animate-spin"
-              style={{
-                color:
-                  THEME_COLOR,
-              }}
-            />
-          ) : (
-            <Activity
-              size={20}
-              style={{
-                color:
-                  THEME_COLOR,
-              }}
-            />
-          )}
+        <div className="relative font-semibold">
+          {capability.name}
         </div>
+
+        {config.description && (
+          <div
+            className={`relative mt-1 text-xs ${muted}`}
+          >
+            {config.description}
+          </div>
+        )}
       </button>
     );
-  }
-
-  /* ===================================================
-     LOADING
-  =================================================== */
+  };
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f7fbfc]">
-        <div className="mx-auto max-w-6xl animate-pulse px-4 py-8">
-          <div className="h-6 w-32 rounded bg-slate-200" />
+      <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-950 text-white">
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(135deg,#080C1A,#18304A,#42B8C5)",
+          }}
+        />
 
-          <div className="mt-8 h-20 w-80 rounded-2xl bg-slate-200" />
-
-          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {[1, 2, 3, 4].map(
-              (item) => (
-                <div
-                  key={item}
-                  className="h-28 rounded-[24px] bg-white shadow-sm"
-                />
-              )
-            )}
+        <div className="relative z-10 rounded-[30px] border border-white/15 bg-black/25 px-7 py-5 shadow-2xl backdrop-blur-2xl">
+          <div className="flex items-center gap-3">
+            <RefreshCw className="h-5 w-5 animate-spin" />
+            <span className="text-sm font-medium">
+              Loading device...
+            </span>
           </div>
-
-          <div className="mt-8 h-48 rounded-[28px] bg-white shadow-sm" />
-
-          <div className="mt-8 h-48 rounded-[28px] bg-white shadow-sm" />
         </div>
       </main>
     );
   }
-
-  /* ===================================================
-     NOT FOUND
-  =================================================== */
 
   if (!device) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#f7fbfc] px-4">
-        <div className="w-full max-w-md rounded-[28px] bg-white p-8 text-center shadow-sm">
-          <Cpu
-            size={35}
-            className="mx-auto"
-            style={{
-              color:
-                THEME_COLOR,
-            }}
-          />
+      <main className="relative min-h-screen overflow-hidden p-5 text-white">
+        <div
+          className="fixed inset-0"
+          style={{
+            backgroundImage: `url(${DEFAULT_BACKGROUND})`,
+            backgroundPosition: "center",
+            backgroundSize: "cover",
+          }}
+        />
 
-          <h1 className="mt-5 text-xl font-semibold text-slate-600">
-            Device not found
-          </h1>
+        <div
+          className="fixed inset-0"
+          style={{
+            background: sky.css,
+            opacity: 0.85,
+            mixBlendMode: "normal",
+          }}
+        />
 
-          <p className="mt-2 text-sm text-slate-400">
-            {error ||
-              "This device does not exist."}
-          </p>
+        <div className="relative z-10 mx-auto flex min-h-[90vh] max-w-4xl items-center justify-center">
+          <div className="w-full rounded-[32px] border border-white/15 bg-black/30 p-7 shadow-2xl backdrop-blur-2xl">
+            <h1 className="text-xl font-bold">
+              Device not found
+            </h1>
 
-          <button
-            onClick={() =>
-              router.push(
-                `/house/${houseId}/room/${roomId}`
-              )
-            }
-            className="mx-auto mt-6 flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold text-white"
-            style={{
-              backgroundColor:
-                THEME_COLOR,
-            }}
-          >
-            <ArrowLeft
-              size={18}
-            />
-            Back to Room
-          </button>
+            <p className="mt-2 text-sm text-white/60">
+              {error ||
+                "The requested device could not be loaded."}
+            </p>
+
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  `/house/${houseId}/room/${roomId}`
+                )
+              }
+              className="mt-5 rounded-2xl px-5 py-3 text-sm font-semibold text-white shadow-lg"
+              style={{
+                backgroundColor:
+                  THEME_COLOR,
+              }}
+            >
+              Back to Room
+            </button>
+          </div>
         </div>
       </main>
     );
   }
 
-  /* ===================================================
-     DERIVED
-  =================================================== */
-
-  const isOnline =
-    status?.online ??
-    device.is_online;
-
-  const lastSeen =
-    status?.last_seen_at ??
-    device.last_seen_at;
-
-  const commandsBlocked =
-    securityState !==
-    "active";
-
-  const securityLabel =
-    securityState
-      .replace(
-        "_",
-        " "
-      )
-      .replace(
-        /\b\w/g,
-        (char) =>
-          char.toUpperCase()
-      );
-
-  /* ===================================================
-     MAIN
-  =================================================== */
-
   return (
-    <main className="min-h-screen bg-[#f7fbfc] text-slate-600">
-      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+    <main
+      className={`relative min-h-screen overflow-x-hidden ${
+        isNight
+          ? "text-white"
+          : "text-black"
+      }`}
+    >
+      {/* BACKGROUND */}
+      <div
+        className="fixed inset-0 bg-cover bg-center"
+        style={{
+          backgroundImage: `url(${DEFAULT_BACKGROUND})`,
+        }}
+      />
 
-        {/* =================================================
-            HEADER
-        ================================================= */}
+      {/* TIME BASED SKY */}
+      <div
+        className="fixed inset-0 transition-all duration-1000"
+        style={{
+          background: sky.css,
+          opacity: isNight ? 0.88 : 0.82,
+          mixBlendMode: isNight
+            ? "normal"
+            : "soft-light",
+        }}
+      />
 
-        <header className="mb-7">
-          <button
-            onClick={() =>
-              router.push(
-                `/house/${houseId}/room/${roomId}`
-              )
-            }
-            className="mb-6 flex items-center gap-2 text-sm text-slate-400 hover:text-slate-600"
-          >
-            <ArrowLeft
-              size={17}
-            />
-            Back to Room
-          </button>
+      {/* GLASS OVERLAY */}
+      <div
+        className={`fixed inset-0 ${
+          isNight
+            ? "bg-slate-950/35"
+            : "bg-white/30"
+        }`}
+      />
 
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-4">
-              <div
-                className="flex h-14 w-14 items-center justify-center rounded-2xl"
-                style={{
-                  backgroundColor:
-                    `${THEME_COLOR}12`,
-                  color:
-                    THEME_COLOR,
-                }}
-              >
-                <Cpu
-                  size={28}
-                />
-              </div>
+      {/* NIGHT ATMOSPHERE */}
+      {isNight && (
+        <>
+          <div className="fixed left-[10%] top-[12%] h-2 w-2 animate-pulse rounded-full bg-white/70" />
+          <div className="fixed left-[28%] top-[20%] h-1.5 w-1.5 animate-pulse rounded-full bg-white/50" />
+          <div className="fixed right-[20%] top-[15%] h-2 w-2 animate-pulse rounded-full bg-white/60" />
+          <div className="fixed right-[8%] top-[30%] h-1 w-1 rounded-full bg-white/50" />
+        </>
+      )}
 
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
-                    Device
-                  </p>
+      <div className="relative z-10 mx-auto min-h-screen max-w-6xl px-4 py-5 sm:px-6 lg:px-8">
+        {/* HEADER */}
+        <header
+          className={`mb-5 flex items-center justify-between gap-3 rounded-[28px] border p-4 shadow-2xl backdrop-blur-2xl ${glass}`}
+        >
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  `/house/${houseId}/room/${roomId}`
+                )
+              }
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border backdrop-blur-xl transition hover:-translate-y-0.5 ${
+                isNight
+                  ? "border-white/10 bg-white/[0.07] hover:bg-white/10"
+                  : "border-black/10 bg-white/40 hover:bg-white/60"
+              }`}
+              aria-label="Back"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
 
-                  <span
-                    className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold ${
-                      isOnline
-                        ? "bg-green-50 text-green-500"
-                        : "bg-slate-100 text-slate-400"
-                    }`}
-                  >
-                    {isOnline ? (
-                      <Wifi
-                        size={12}
-                      />
-                    ) : (
-                      <WifiOff
-                        size={12}
-                      />
-                    )}
-
-                    {isOnline
-                      ? "ONLINE"
-                      : "OFFLINE"}
-                  </span>
-                </div>
-
-                <h1 className="mt-1 text-2xl font-semibold text-slate-600 sm:text-3xl">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h1 className="truncate text-lg font-bold sm:text-xl">
                   {device.name}
                 </h1>
 
-                <p className="mt-1 font-mono text-xs text-slate-400">
-                  {
-                    device.device_id
-                  }
-                </p>
+                <span
+                  className={`hidden rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider sm:inline-flex ${
+                    device.is_online
+                      ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-400"
+                      : "border-red-400/30 bg-red-400/10 text-red-400"
+                  }`}
+                >
+                  {device.is_online
+                    ? "Online"
+                    : "Offline"}
+                </span>
+              </div>
+
+              <div
+                className={`mt-0.5 flex items-center gap-2 text-xs ${muted}`}
+              >
+                <span className="truncate">
+                  {device.device_id}
+                </span>
+                <span>•</span>
+                <span>
+                  {formatTime(currentTime)}
+                </span>
               </div>
             </div>
+          </div>
 
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={
-                  requestCurrentStatus
-                }
-                disabled={
-                  statusRequestWaiting ||
-                  commandsBlocked
-                }
-                className="flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
-                style={{
-                  backgroundColor:
-                    THEME_COLOR,
-                }}
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={
+                requestCurrentStatus
+              }
+              disabled={
+                statusLoading ||
+                commandsBlocked
+              }
+              className={`flex h-11 items-center gap-2 rounded-2xl border px-3 text-sm font-semibold backdrop-blur-xl transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 ${
+                isNight
+                  ? "border-white/10 bg-white/[0.07] hover:bg-white/10"
+                  : "border-black/10 bg-white/40 hover:bg-white/60"
+              }`}
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${
+                  statusLoading
+                    ? "animate-spin"
+                    : ""
+                }`}
+              />
+
+              <span className="hidden sm:inline">
+                Status
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                setSecurityOpen(true)
+              }
+              className={`relative flex h-11 w-11 items-center justify-center rounded-2xl border backdrop-blur-xl transition hover:-translate-y-0.5 ${
+                isNight
+                  ? "border-white/10 bg-white/[0.07] hover:bg-white/10"
+                  : "border-black/10 bg-white/40 hover:bg-white/60"
+              } ${
+                securityState !== "active"
+                  ? "border-red-400/40"
+                  : ""
+              }`}
+              aria-label="Security Center"
+              title="Security Center"
+            >
+              {securityState ===
+              "active" ? (
+                <Shield className="h-5 w-5" />
+              ) : (
+                <ShieldAlert className="h-5 w-5 text-red-400" />
+              )}
+
+              {securityState !==
+                "active" && (
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white shadow-lg">
+                  !
+                </span>
+              )}
+            </button>
+          </div>
+        </header>
+
+        {/* HERO */}
+        <section
+          className={`relative mb-5 overflow-hidden rounded-[34px] border p-6 shadow-2xl backdrop-blur-2xl sm:p-7 ${glass}`}
+        >
+          <div
+            className="absolute -right-20 -top-24 h-72 w-72 rounded-full blur-3xl"
+            style={{
+              background: `${THEME_COLOR}18`,
+            }}
+          />
+
+          <div className="relative flex flex-col justify-between gap-6 md:flex-row md:items-end">
+            <div>
+              <div
+                className={`mb-3 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] ${glassSoft}`}
               >
-                {statusRequestWaiting ? (
-                  <>
-                    <Loader2
-                      size={17}
-                      className="animate-spin"
-                    />
-                    Waiting{" "}
-                    {
-                      statusCountdown
-                    }
-                    s
-                  </>
-                ) : (
-                  <>
-                    <Send
-                      size={17}
-                    />
-                    Get Current
-                    Status
-                  </>
-                )}
-              </button>
+                <Cpu
+                  className="h-3.5 w-3.5"
+                  style={{
+                    color: THEME_COLOR,
+                  }}
+                />
+                Device Control
+              </div>
+
+              <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+                {device.name}
+              </h2>
+
+              <p
+                className={`mt-2 max-w-xl text-sm leading-6 ${muted}`}
+              >
+                Dynamic controls and live
+                device status generated from
+                this device&apos;s capabilities.
+              </p>
+            </div>
+
+            <div
+              className={`flex items-center gap-3 rounded-[22px] border px-4 py-3 backdrop-blur-xl ${glassSoft}`}
+            >
+              {device.is_online ? (
+                <Wifi className="h-5 w-5 text-emerald-400" />
+              ) : (
+                <WifiOff className="h-5 w-5 text-red-400" />
+              )}
+
+              <div>
+                <div className="text-sm font-semibold">
+                  {device.is_online
+                    ? "Device Online"
+                    : "Device Offline"}
+                </div>
+
+                <div
+                  className={`mt-0.5 text-xs ${muted}`}
+                >
+                  Last seen{" "}
+                  {formatDate(
+                    status?.last_seen_at ??
+                      device.last_seen_at
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* LOCKED BANNER */}
+        {commandsBlocked && (
+          <div
+            className={`mb-5 rounded-[26px] border p-4 shadow-xl backdrop-blur-2xl ${getSecurityBadgeClass(
+              securityState
+            )}`}
+          >
+            <div className="flex items-center gap-3">
+              <ShieldAlert className="h-5 w-5 shrink-0" />
+
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold">
+                  Device{" "}
+                  {getSecurityLabel(
+                    securityState
+                  )}
+                </div>
+
+                <div className="mt-0.5 text-xs opacity-75">
+                  {getSecurityDescription(
+                    securityState
+                  )}
+                </div>
+              </div>
 
               <button
                 type="button"
                 onClick={() =>
-                  loadDevice(
-                    true
-                  )
+                  setSecurityOpen(true)
                 }
-                disabled={
-                  refreshing
-                }
-                className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-500 shadow-sm disabled:opacity-60"
+                className="hidden rounded-xl border border-current/20 px-3 py-2 text-xs font-bold sm:block"
               >
-                <RefreshCw
-                  size={17}
-                  className={
-                    refreshing
-                      ? "animate-spin"
-                      : ""
-                  }
-                />
-
-                Refresh
+                Security
               </button>
             </div>
           </div>
-        </header>
-
-        {/* =================================================
-            SECURITY BANNER
-        ================================================= */}
-
-        {commandsBlocked && (
-          <div className="mb-6 flex items-start gap-3 rounded-2xl border border-red-100 bg-red-50 px-4 py-4 text-red-600">
-            <ShieldAlert
-              size={21}
-              className="mt-0.5 shrink-0"
-            />
-
-            <div>
-              <p className="font-semibold">
-                Device is{" "}
-                {securityLabel}
-              </p>
-
-              <p className="mt-1 text-xs text-red-500">
-                Commands are blocked
-                until the device is
-                returned to an active
-                security state.
-              </p>
-
-              {securityReason && (
-                <p className="mt-1 text-xs text-red-400">
-                  Reason:{" "}
-                  {
-                    securityReason
-                  }
-                </p>
-              )}
-            </div>
-          </div>
         )}
-
-        {/* =================================================
-            OFFLINE
-        ================================================= */}
-
-        {statusOfflineMessage && (
-          <div className="mb-6 flex items-start gap-3 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-4 text-sm text-amber-700">
-            <WifiOff
-              size={19}
-              className="mt-0.5"
-            />
-
-            <div>
-              <p className="font-semibold">
-                Device is offline
-              </p>
-
-              <p className="mt-0.5 text-xs">
-                We'll update this when
-                it comes online.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* =================================================
-            ERROR
-        ================================================= */}
 
         {error && (
-          <div className="mb-6 flex items-start gap-3 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-500">
-            <AlertTriangle
-              size={18}
-            />
+          <div className="mb-5 rounded-[24px] border border-red-400/25 bg-red-500/10 p-4 text-sm text-red-300 shadow-xl backdrop-blur-xl">
+            {error}
+          </div>
+        )}
 
-            <span>
-              {error}
+        {/* SUMMARY */}
+        <section className="mb-7 grid gap-3 sm:grid-cols-3">
+          <div
+            className={`rounded-[26px] border p-5 shadow-xl backdrop-blur-2xl ${glass}`}
+          >
+            <div
+              className={`mb-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.15em] ${muted}`}
+            >
+              <Cpu className="h-3.5 w-3.5" />
+              Device Type
+            </div>
+
+            <div className="text-lg font-bold">
+              {device.device_type ||
+                "Generic Device"}
+            </div>
+          </div>
+
+          <div
+            className={`rounded-[26px] border p-5 shadow-xl backdrop-blur-2xl ${glass}`}
+          >
+            <div
+              className={`mb-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.15em] ${muted}`}
+            >
+              <Clock3 className="h-3.5 w-3.5" />
+              Last Seen
+            </div>
+
+            <div className="text-sm font-bold">
+              {formatDate(
+                status?.last_seen_at ??
+                  device.last_seen_at
+              )}
+            </div>
+          </div>
+
+          <div
+            className={`rounded-[26px] border p-5 shadow-xl backdrop-blur-2xl ${glass}`}
+          >
+            <div
+              className={`mb-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.15em] ${muted}`}
+            >
+              <Shield className="h-3.5 w-3.5" />
+              Security
+            </div>
+
+            <span
+              className={`inline-flex rounded-xl border px-3 py-1.5 text-xs font-bold ${getSecurityBadgeClass(
+                securityState
+              )}`}
+            >
+              {getSecurityLabel(
+                securityState
+              )}
             </span>
           </div>
-        )}
+        </section>
 
-        {/* =================================================
-            SUCCESS
-        ================================================= */}
-
-        {commandMessage && (
-          <div className="mb-6 flex items-center gap-3 rounded-2xl border border-green-100 bg-green-50 px-4 py-3 text-sm text-green-600">
-            <Activity
-              size={18}
-            />
-
-            {commandMessage}
-          </div>
-        )}
-
-        {securityMessage && (
-          <div className="mb-6 flex items-center gap-3 rounded-2xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-sm text-cyan-700">
-            <Shield
-              size={18}
-            />
-
-            {securityMessage}
-          </div>
-        )}
-
-        {/* =================================================
-            SUMMARY
-        ================================================= */}
-
-        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-
-          <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm">
-            <p className="text-sm text-slate-400">
-              Status
-            </p>
-
-            <p
-              className={`mt-2 text-2xl font-semibold ${
-                isOnline
-                  ? "text-green-500"
-                  : "text-slate-400"
-              }`}
-            >
-              {isOnline
-                ? "Online"
-                : "Offline"}
-            </p>
-          </div>
-
-          <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm">
-            <p className="text-sm text-slate-400">
-              Last Seen
-            </p>
-
-            <p className="mt-2 text-sm font-semibold text-slate-600">
-              {formatDate(
-                lastSeen
-              )}
-            </p>
-          </div>
-
-          <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm">
-            <p className="text-sm text-slate-400">
-              Controls
-            </p>
-
-            <p className="mt-2 text-3xl font-semibold text-slate-600">
-              {
-                capabilities.length
-              }
-            </p>
-          </div>
-
-          <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm">
-            <p className="text-sm text-slate-400">
-              Security
-            </p>
-
-            <p
-              className={`mt-2 text-xl font-semibold ${
-                securityState ===
-                "active"
-                  ? "text-green-500"
-                  : "text-red-500"
-              }`}
-            >
-              {securityLabel}
-            </p>
-          </div>
-        </div>
-
-        {/* =================================================
-            SECURITY CENTER
-        ================================================= */}
-
-        <section className="mb-8">
-          <div className="mb-5">
-            <div className="flex items-center gap-2">
-              <Shield
-                size={21}
-                style={{
-                  color:
-                    THEME_COLOR,
-                }}
-              />
-
-              <h2 className="text-xl font-semibold text-slate-600">
-                Security Center
+        {/* CONTROLS */}
+        <section className="mb-7">
+          <div className="mb-4 flex items-end justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold">
+                Controls
               </h2>
+
+              <p
+                className={`mt-1 text-sm ${muted}`}
+              >
+                Automatically generated from
+                device capabilities.
+              </p>
             </div>
 
-            <p className="mt-1 text-sm text-slate-400">
-              Protect, lock, recover and
-              manage this device.
-            </p>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-
-            {/* CURRENT SECURITY */}
-
-            <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-wider text-slate-400">
-                    Current State
-                  </p>
-
-                  <p
-                    className={`mt-2 text-2xl font-semibold ${
-                      securityState ===
-                      "active"
-                        ? "text-green-500"
-                        : "text-red-500"
-                    }`}
-                  >
-                    {
-                      securityLabel
-                    }
-                  </p>
-                </div>
-
-                <div
-                  className={`flex h-12 w-12 items-center justify-center rounded-xl ${
-                    securityState ===
-                    "active"
-                      ? "bg-green-50 text-green-500"
-                      : "bg-red-50 text-red-500"
-                  }`}
-                >
-                  {securityState ===
-                  "active" ? (
-                    <Shield
-                      size={23}
-                    />
-                  ) : (
-                    <ShieldAlert
-                      size={23}
-                    />
-                  )}
-                </div>
-              </div>
-
-              <div className="mt-5 grid grid-cols-2 gap-3">
-
-                <button
-                  type="button"
-                  disabled={
-                    securityLoading ||
-                    securityState !==
-                      "active"
-                  }
-                  onClick={() =>
-                    securityAction(
-                      "lock"
-                    )
-                  }
-                  className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50"
-                >
-                  <Lock
-                    size={17}
-                  />
-                  Lock
-                </button>
-
-                <button
-                  type="button"
-                  disabled={
-                    securityLoading ||
-                    securityState ===
-                      "active"
-                  }
-                  onClick={() =>
-                    securityAction(
-                      "unlock"
-                    )
-                  }
-                  className="flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
-                  style={{
-                    backgroundColor:
-                      THEME_COLOR,
-                  }}
-                >
-                  {securityLoading ? (
-                    <Loader2
-                      size={17}
-                      className="animate-spin"
-                    />
-                  ) : (
-                    <Unlock
-                      size={17}
-                    />
-                  )}
-                  Unlock
-                </button>
-
-              </div>
-            </div>
-
-            {/* HIGH RISK */}
-
-            <div className="rounded-[24px] border border-red-100 bg-white p-5 shadow-sm">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-50 text-red-500">
-                  <Siren
-                    size={22}
-                  />
-                </div>
-
-                <div>
-                  <p className="font-semibold text-slate-600">
-                    Emergency Protection
-                  </p>
-
-                  <p className="mt-1 text-xs text-slate-400">
-                    Immediately block device
-                    access and revoke its
-                    active sessions.
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
-
-                <button
-                  type="button"
-                  disabled={
-                    securityLoading
-                  }
-                  onClick={() =>
-                    securityAction(
-                      "emergency_lock"
-                    )
-                  }
-                  className="flex items-center justify-center gap-2 rounded-xl bg-red-500 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  <Siren
-                    size={17}
-                  />
-                  Emergency Lock
-                </button>
-
-                <button
-                  type="button"
-                  disabled={
-                    securityLoading
-                  }
-                  onClick={() =>
-                    securityAction(
-                      "lost"
-                    )
-                  }
-                  className="flex items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 disabled:opacity-50"
-                >
-                  <ShieldAlert
-                    size={17}
-                  />
-                  Mark Lost
-                </button>
-
-                <button
-                  type="button"
-                  disabled={
-                    securityLoading
-                  }
-                  onClick={() =>
-                    securityAction(
-                      "stolen"
-                    )
-                  }
-                  className="flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600 disabled:opacity-50 sm:col-span-2"
-                >
-                  <AlertTriangle
-                    size={17}
-                  />
-                  Mark Stolen
-                </button>
-
-              </div>
-            </div>
-
-            {/* RECOVERY */}
-
-            <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm md:col-span-2">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-3">
-                  <div
-                    className="flex h-11 w-11 items-center justify-center rounded-xl"
-                    style={{
-                      backgroundColor:
-                        `${THEME_COLOR}12`,
-                      color:
-                        THEME_COLOR,
-                    }}
-                  >
-                    <KeyRound
-                      size={22}
-                    />
-                  </div>
-
-                  <div>
-                    <p className="font-semibold text-slate-600">
-                      Recovery Codes
-                    </p>
-
-                    <p className="mt-1 text-xs text-slate-400">
-                      Generate three one-time
-                      recovery codes.
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  disabled={
-                    recoveryLoading ||
-                    securityState !==
-                      "active"
-                  }
-                  onClick={
-                    generateRecoveryCodes
-                  }
-                  className="flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
-                  style={{
-                    backgroundColor:
-                      THEME_COLOR,
-                  }}
-                >
-                  {recoveryLoading ? (
-                    <Loader2
-                      size={17}
-                      className="animate-spin"
-                    />
-                  ) : (
-                    <KeyRound
-                      size={17}
-                    />
-                  )}
-
-                  Generate New Codes
-                </button>
-              </div>
-
-              {recoveryCodes.length >
-                0 && (
-                <div className="mt-5 rounded-2xl border border-amber-100 bg-amber-50 p-4">
-                  <div className="flex items-start gap-3">
-                    <AlertTriangle
-                      size={19}
-                      className="mt-0.5 shrink-0 text-amber-600"
-                    />
-
-                    <div>
-                      <p className="font-semibold text-amber-700">
-                        Save these codes now
-                      </p>
-
-                      <p className="mt-1 text-xs text-amber-600">
-                        These codes are shown
-                        only once. The database
-                        stores hashes, not the
-                        plaintext codes.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                    {recoveryCodes.map(
-                      (code) => (
-                        <button
-                          key={code}
-                          type="button"
-                          onClick={() =>
-                            copyCode(
-                              code
-                            )
-                          }
-                          className="flex items-center justify-between rounded-xl border border-amber-200 bg-white px-4 py-3 font-mono text-sm font-bold tracking-wider text-slate-700"
-                        >
-                          <span>
-                            {code}
-                          </span>
-
-                          {copiedCode ===
-                          code ? (
-                            <Check
-                              size={16}
-                              className="text-green-500"
-                            />
-                          ) : (
-                            <Copy
-                              size={16}
-                              className="text-slate-400"
-                            />
-                          )}
-                        </button>
-                      )
-                    )}
-                  </div>
-                </div>
-              )}
+            <div
+              className={`hidden rounded-xl border px-3 py-1.5 text-xs font-semibold sm:block ${glassSoft}`}
+            >
+              {sortedCapabilities.length}{" "}
+              control
+              {sortedCapabilities.length ===
+              1
+                ? ""
+                : "s"}
             </div>
           </div>
-        </section>
 
-        {/* =================================================
-            LIVE STATUS
-        ================================================= */}
-
-        <section className="mb-8">
-          <div className="mb-5">
-            <h2 className="text-xl font-semibold text-slate-600">
-              Live Status
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-400">
-              Current data reported by
-              the ESP controller.
-            </p>
-          </div>
-
-          {status?.status_data &&
-          Object.keys(
-            status.status_data
-          ).length > 0 ? (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {Object.entries(
-                status.status_data
-              ).map(
-                ([key, value]) => {
-                  const isBoolean =
-                    typeof value ===
-                    "boolean";
-
-                  return (
-                    <div
-                      key={key}
-                      className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
-                            {key.replace(
-                              /_/g,
-                              " "
-                            )}
-                          </p>
-
-                          <p
-                            className={`mt-3 text-2xl font-semibold ${
-                              isBoolean
-                                ? value
-                                  ? "text-green-500"
-                                  : "text-slate-400"
-                                : "text-slate-600"
-                            }`}
-                          >
-                            {isBoolean
-                              ? value
-                                ? "ON"
-                                : "OFF"
-                              : typeof value ===
-                                "object"
-                              ? JSON.stringify(
-                                  value
-                                )
-                              : String(
-                                  value
-                                )}
-                          </p>
-                        </div>
-
-                        <Gauge
-                          size={19}
-                          style={{
-                            color:
-                              THEME_COLOR,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  );
-                }
-              )}
-            </div>
-          ) : (
-            <div className="rounded-[28px] border border-dashed border-slate-200 bg-white px-6 py-12 text-center">
+          {sortedCapabilities.length ===
+          0 ? (
+            <div
+              className={`rounded-[30px] border p-8 text-center shadow-xl backdrop-blur-2xl ${glass}`}
+            >
               <Activity
-                size={27}
-                className="mx-auto"
-                style={{
-                  color:
-                    THEME_COLOR,
-                }}
+                className="mx-auto h-8 w-8 opacity-40"
               />
 
-              <h3 className="mt-4 font-semibold text-slate-600">
-                No live data yet
-              </h3>
+              <div className="mt-3 font-semibold">
+                No controls available
+              </div>
 
-              <p className="mt-2 text-sm text-slate-400">
-                The ESP has not reported
-                any status data yet.
-              </p>
-            </div>
-          )}
-        </section>
-
-        {/* =================================================
-            CONTROLS
-        ================================================= */}
-
-        <section className="mb-8">
-          <div className="mb-5">
-            <h2 className="text-xl font-semibold text-slate-600">
-              Controls
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-400">
-              Control your ESP controller
-              from here.
-            </p>
-          </div>
-
-          {capabilities.length >
-          0 ? (
-            <div className="grid gap-4 md:grid-cols-2">
-              {capabilities.map(
-                (capability) => (
-                  <div
-                    key={
-                      capability.id
-                    }
-                  >
-                    {renderCapability(
-                      capability
-                    )}
-                  </div>
-                )
-              )}
+              <div
+                className={`mt-1 text-sm ${muted}`}
+              >
+                This device has not reported
+                any enabled capabilities yet.
+              </div>
             </div>
           ) : (
-            <div className="rounded-[28px] border border-dashed border-slate-200 bg-white px-6 py-12 text-center">
-              <Settings
-                size={27}
-                className="mx-auto"
-                style={{
-                  color:
-                    THEME_COLOR,
-                }}
-              />
-
-              <h3 className="mt-4 font-semibold text-slate-600">
-                No controls configured
-              </h3>
-
-              <p className="mt-2 text-sm text-slate-400">
-                This device has no enabled
-                capabilities yet.
-              </p>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {sortedCapabilities.map(
+                renderControl
+              )}
             </div>
           )}
         </section>
 
-        {/* =================================================
-            DEVICE INFO
-        ================================================= */}
+        {/* CURRENT STATUS */}
+        <section className="mb-7">
+          <div className="mb-4">
+            <h2 className="text-xl font-bold">
+              Current Status
+            </h2>
 
-        <section className="mb-8">
-          <h2 className="mb-5 text-xl font-semibold text-slate-600">
-            Device Information
-          </h2>
+            <p
+              className={`mt-1 text-sm ${muted}`}
+            >
+              Latest status reported by the
+              device.
+            </p>
+          </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm">
-              <div className="flex items-center gap-3">
-                <Cpu
-                  size={19}
-                  style={{
-                    color:
-                      THEME_COLOR,
-                  }}
-                />
+          <div
+            className={`rounded-[30px] border p-5 shadow-xl backdrop-blur-2xl sm:p-6 ${glass}`}
+          >
+            {status?.status_data &&
+            Object.keys(
+              status.status_data
+            ).length > 0 ? (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {Object.entries(
+                  status.status_data
+                ).map(([key, value]) => (
+                  <div
+                    key={key}
+                    className={`rounded-[22px] border p-4 backdrop-blur-xl ${glassSoft}`}
+                  >
+                    <div
+                      className={`text-[10px] font-bold uppercase tracking-[0.15em] ${muted}`}
+                    >
+                      {key}
+                    </div>
 
-                <div>
-                  <p className="text-xs text-slate-400">
-                    Device ID
-                  </p>
-
-                  <p className="mt-1 font-mono text-sm font-medium text-slate-600">
-                    {
-                      device.device_id
-                    }
-                  </p>
-                </div>
+                    <div className="mt-2 break-words text-lg font-bold">
+                      {typeof value ===
+                      "object"
+                        ? JSON.stringify(
+                            value
+                          )
+                        : String(value)}
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
-
-            <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm">
-              <div className="flex items-center gap-3">
-                <Settings
-                  size={19}
-                  style={{
-                    color:
-                      THEME_COLOR,
-                  }}
-                />
-
-                <div>
-                  <p className="text-xs text-slate-400">
-                    Device Type
-                  </p>
-
-                  <p className="mt-1 text-sm font-medium text-slate-600">
-                    {device.device_type ===
-                    "water_controller"
-                      ? "Water Controller"
-                      : "Generic ESP"}
-                  </p>
-                </div>
+            ) : (
+              <div
+                className={`py-8 text-center text-sm ${muted}`}
+              >
+                No status data available.
               </div>
+            )}
+
+            <div
+              className={`mt-5 flex items-center gap-2 border-t pt-4 text-xs ${muted}`}
+            >
+              <Clock3 className="h-3.5 w-3.5" />
+              Updated:{" "}
+              {formatDate(
+                status?.updated_at ??
+                  null
+              )}
             </div>
           </div>
         </section>
 
-        {/* =================================================
-            RECENT ACTIVITY
-        ================================================= */}
-
-        <section>
-          <div className="mb-5">
-            <h2 className="text-xl font-semibold text-slate-600">
-              Recent Activity
+        {/* EVENTS */}
+        <section className="pb-8">
+          <div className="mb-4">
+            <h2 className="text-xl font-bold">
+              Recent Events
             </h2>
 
-            <p className="mt-1 text-sm text-slate-400">
-              Latest events reported by
-              this device.
+            <p
+              className={`mt-1 text-sm ${muted}`}
+            >
+              Latest activity reported by the
+              device.
             </p>
           </div>
 
-          {events.length >
-          0 ? (
-            <div className="overflow-hidden rounded-[24px] border border-slate-100 bg-white shadow-sm">
-              <div className="divide-y divide-slate-100">
+          <div
+            className={`overflow-hidden rounded-[30px] border shadow-xl backdrop-blur-2xl ${glass}`}
+          >
+            {events.length === 0 ? (
+              <div
+                className={`p-8 text-center text-sm ${muted}`}
+              >
+                No events yet.
+              </div>
+            ) : (
+              <div>
                 {events.map(
-                  (event) => (
+                  (event, index) => (
                     <div
-                      key={
-                        event.id
-                      }
-                      className="flex items-center justify-between gap-4 px-5 py-4"
+                      key={event.id}
+                      className={`flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between ${
+                        index !==
+                        events.length - 1
+                          ? "border-b border-current/10"
+                          : ""
+                      }`}
                     >
                       <div className="flex min-w-0 items-center gap-3">
                         <div
-                          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
-                          style={{
-                            backgroundColor:
-                              `${THEME_COLOR}12`,
-                            color:
-                              THEME_COLOR,
-                          }}
+                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${glassSoft}`}
                         >
-                          <Activity
-                            size={18}
-                          />
+                          <Activity className="h-4 w-4" />
                         </div>
 
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-slate-600">
-                            {eventText(
-                              event
-                            )}
-                          </p>
+                          <div className="truncate font-semibold">
+                            {event.event_type}
+                          </div>
 
-                          <p className="mt-1 text-xs text-slate-400">
-                            {event.source ||
-                              "device"}
-                          </p>
+                          <div
+                            className={`mt-1 text-xs ${muted}`}
+                          >
+                            {event.control_id
+                              ? `Control: ${event.control_id}`
+                              : "Device event"}
+
+                            {event.source
+                              ? ` • ${event.source}`
+                              : ""}
+                          </div>
                         </div>
                       </div>
 
-                      <div className="shrink-0 text-right">
-                        <p className="text-xs font-medium text-slate-400">
-                          {formatDate(
-                            event.created_at
-                          )}
-                        </p>
-
-                        {event.value && (
-                          <p className="mt-1 max-w-[180px] truncate font-mono text-[10px] text-slate-300">
-                            {JSON.stringify(
-                              event.value
-                            )}
-                          </p>
+                      <div
+                        className={`shrink-0 text-xs ${muted}`}
+                      >
+                        {formatDate(
+                          event.created_at
                         )}
                       </div>
                     </div>
                   )
                 )}
               </div>
-            </div>
-          ) : (
-            <div className="rounded-[28px] border border-dashed border-slate-200 bg-white px-6 py-12 text-center">
-              <History
-                size={27}
-                className="mx-auto"
-                style={{
-                  color:
-                    THEME_COLOR,
-                }}
-              />
-
-              <h3 className="mt-4 font-semibold text-slate-600">
-                No activity yet
-              </h3>
-
-              <p className="mt-2 text-sm text-slate-400">
-                Device events will appear
-                here once your ESP starts
-                communicating with Supabase.
-              </p>
-            </div>
-          )}
+            )}
+          </div>
         </section>
       </div>
+
+      {/* SECURITY CENTER */}
+      {securityOpen && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/55 px-3 py-5 backdrop-blur-md sm:px-5"
+          onMouseDown={(event) => {
+            if (
+              event.target ===
+              event.currentTarget
+            ) {
+              setSecurityOpen(false);
+            }
+          }}
+        >
+          <div
+            className={`flex max-h-[92vh] w-full max-w-xl flex-col overflow-hidden rounded-[32px] border shadow-2xl backdrop-blur-2xl ${glass}`}
+          >
+            {/* SECURITY HEADER */}
+            <div className="flex items-center justify-between border-b border-current/10 p-5 sm:p-6">
+              <div className="flex min-w-0 items-center gap-3">
+                <div
+                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border ${glassSoft}`}
+                  style={{
+                    color:
+                      securityState ===
+                      "active"
+                        ? THEME_COLOR
+                        : undefined,
+                  }}
+                >
+                  {securityState ===
+                  "active" ? (
+                    <Shield className="h-5 w-5" />
+                  ) : (
+                    <ShieldAlert className="h-5 w-5 text-red-400" />
+                  )}
+                </div>
+
+                <div className="min-w-0">
+                  <h2 className="truncate text-lg font-bold">
+                    Security Center
+                  </h2>
+
+                  <p
+                    className={`truncate text-xs ${muted}`}
+                  >
+                    {device.name} •{" "}
+                    {device.device_id}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setSecurityOpen(false)
+                }
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition ${
+                  isNight
+                    ? "border-white/10 bg-white/[0.06] hover:bg-white/10"
+                    : "border-black/10 bg-white/40 hover:bg-white/60"
+                }`}
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* BODY */}
+            <div className="overflow-y-auto p-4 sm:p-5">
+              {/* CURRENT STATE */}
+              <div
+                className={`mb-4 rounded-[26px] border p-4 ${glassSoft}`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div
+                      className={`text-[10px] font-bold uppercase tracking-[0.16em] ${muted}`}
+                    >
+                      Current State
+                    </div>
+
+                    <div className="mt-1 text-xl font-bold">
+                      {getSecurityLabel(
+                        securityState
+                      )}
+                    </div>
+                  </div>
+
+                  {securityLoading && (
+                    <RefreshCw className="h-4 w-4 animate-spin opacity-50" />
+                  )}
+                </div>
+
+                <div
+                  className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${getSecurityBadgeClass(
+                    securityState
+                  )}`}
+                >
+                  {
+                    getSecurityDescription(
+                      securityState
+                    )
+                  }
+                </div>
+
+                {securityError && (
+                  <div className="mt-3 rounded-2xl border border-red-400/20 bg-red-500/10 p-3 text-xs text-red-300">
+                    {securityError}
+                  </div>
+                )}
+
+                <div className="mt-3">
+                  {securityState ===
+                  "active" ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        securityAction(
+                          "lock"
+                        )
+                      }
+                      disabled={
+                        securityLoading
+                      }
+                      className={`flex w-full items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-bold transition disabled:opacity-40 ${
+                        isNight
+                          ? "border-white/10 bg-white/[0.06] hover:bg-white/10"
+                          : "border-black/10 bg-white/40 hover:bg-white/60"
+                      }`}
+                    >
+                      <Lock className="h-4 w-4" />
+                      Lock Device
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        securityAction(
+                          "unlock"
+                        )
+                      }
+                      disabled={
+                        securityLoading
+                      }
+                      className={`flex w-full items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-bold transition disabled:opacity-40 ${
+                        isNight
+                          ? "border-white/10 bg-white/[0.06] hover:bg-white/10"
+                          : "border-black/10 bg-white/40 hover:bg-white/60"
+                      }`}
+                    >
+                      <Unlock className="h-4 w-4" />
+                      Unlock Device
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* DANGER ACTIONS */}
+              <div
+                className={`mb-4 rounded-[26px] border border-red-400/20 p-4 ${glassSoft}`}
+              >
+                <div className="mb-3 flex items-center gap-2">
+                  <Siren className="h-4 w-4 text-red-400" />
+
+                  <div>
+                    <div className="text-sm font-bold">
+                      Emergency Protection
+                    </div>
+
+                    <div
+                      className={`text-[11px] ${muted}`}
+                    >
+                      For compromised, missing
+                      or stolen devices.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="divide-y divide-current/10 overflow-hidden rounded-2xl border border-current/10">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      securityAction(
+                        "emergency_lock"
+                      )
+                    }
+                    disabled={
+                      securityLoading
+                    }
+                    className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-red-400 transition hover:bg-red-500/10 disabled:opacity-40"
+                  >
+                    <span className="flex items-center gap-3">
+                      <Siren className="h-4 w-4" />
+                      Emergency Lock
+                    </span>
+
+                    <span className="text-xs opacity-50">
+                      →
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      securityAction(
+                        "lost"
+                      )
+                    }
+                    disabled={
+                      securityLoading
+                    }
+                    className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold transition hover:bg-black/5 disabled:opacity-40 dark:hover:bg-white/5"
+                  >
+                    <span className="flex items-center gap-3">
+                      <ShieldAlert className="h-4 w-4 text-orange-400" />
+                      Mark Device Lost
+                    </span>
+
+                    <span className="text-xs opacity-50">
+                      →
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      securityAction(
+                        "stolen"
+                      )
+                    }
+                    disabled={
+                      securityLoading
+                    }
+                    className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-red-400 transition hover:bg-red-500/10 disabled:opacity-40"
+                  >
+                    <span className="flex items-center gap-3">
+                      <ShieldAlert className="h-4 w-4" />
+                      Mark Device Stolen
+                    </span>
+
+                    <span className="text-xs opacity-50">
+                      →
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* RECOVERY */}
+              <div
+                className={`rounded-[26px] border p-4 ${glassSoft}`}
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border"
+                    style={{
+                      color:
+                        THEME_COLOR,
+                      borderColor: `${THEME_COLOR}35`,
+                      backgroundColor: `${THEME_COLOR}10`,
+                    }}
+                  >
+                    <KeyRound className="h-4 w-4" />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold">
+                      Recovery Codes
+                    </div>
+
+                    <p
+                      className={`mt-1 text-xs leading-5 ${muted}`}
+                    >
+                      Generate a fresh set of
+                      one-time recovery codes.
+                      Previous codes are
+                      invalidated.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={
+                    generateRecoveryCodes
+                  }
+                  disabled={
+                    recoveryLoading
+                  }
+                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold text-white shadow-lg transition hover:-translate-y-0.5 disabled:opacity-40"
+                  style={{
+                    backgroundColor:
+                      THEME_COLOR,
+                  }}
+                >
+                  {recoveryLoading ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <KeyRound className="h-4 w-4" />
+                  )}
+
+                  {recoveryLoading
+                    ? "Generating..."
+                    : "Generate New Codes"}
+                </button>
+
+                {recoveryCodes.length >
+                  0 && (
+                  <div className="mt-4 rounded-2xl border border-amber-400/25 bg-amber-400/5 p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-bold text-amber-300">
+                          Save these now
+                        </div>
+
+                        <div className="mt-0.5 text-[11px] text-amber-200/60">
+                          They cannot be
+                          retrieved later.
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={
+                          copyRecoveryCodes
+                        }
+                        className="flex shrink-0 items-center gap-1.5 rounded-xl border border-current/10 px-3 py-2 text-xs font-bold transition hover:bg-black/5 dark:hover:bg-white/5"
+                      >
+                        {copied ? (
+                          <>
+                            <Check className="h-3.5 w-3.5" />
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-3.5 w-3.5" />
+                            Copy
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {recoveryCodes.map(
+                        (
+                          code,
+                          index
+                        ) => (
+                          <div
+                            key={`${code}-${index}`}
+                            className={`rounded-xl border px-3 py-3 text-center font-mono text-sm font-bold tracking-widest ${glass}`}
+                          >
+                            {code}
+                          </div>
+                        )
+                      )}
+                    </div>
+
+                    {recoveryWarning && (
+                      <div className="mt-3 text-[11px] font-medium text-amber-300/80">
+                        {
+                          recoveryWarning
+                        }
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* FOOTER */}
+            <div className="border-t border-current/10 p-4">
+              <button
+                type="button"
+                onClick={() =>
+                  setSecurityOpen(false)
+                }
+                className={`w-full rounded-2xl border px-4 py-3 text-sm font-bold transition ${
+                  isNight
+                    ? "border-white/10 bg-white/[0.06] hover:bg-white/10"
+                    : "border-black/10 bg-white/40 hover:bg-white/60"
+                }`}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
