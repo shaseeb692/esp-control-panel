@@ -6,6 +6,31 @@ export async function updateSession(request: NextRequest) {
     request,
   });
 
+  const pathname = request.nextUrl.pathname;
+
+  /* =====================================================
+     PUBLIC DEVICE API ROUTES
+     These routes use x-device-key authentication instead
+     of normal Supabase user session authentication.
+  ===================================================== */
+
+  const isPublicDeviceApi =
+    pathname === "/api/device/status" ||
+    pathname.startsWith("/api/device/status/");
+
+  if (isPublicDeviceApi) {
+    console.log("=================================");
+    console.log("PROXY REQUEST:", pathname);
+    console.log("PROXY: allowing public device API");
+    console.log("=================================");
+
+    return response;
+  }
+
+  /* =====================================================
+     SUPABASE SESSION
+  ===================================================== */
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
@@ -36,8 +61,6 @@ export async function updateSession(request: NextRequest) {
     data: { user },
     error,
   } = await supabase.auth.getUser();
-
-  const pathname = request.nextUrl.pathname;
 
   console.log("=================================");
   console.log("PROXY REQUEST:", pathname);
