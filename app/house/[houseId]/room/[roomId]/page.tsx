@@ -13,9 +13,7 @@ import {
   ChevronRight,
   Wifi,
   WifiOff,
-  Trash2,
   AlertTriangle,
-  Settings,
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
@@ -86,17 +84,8 @@ export default function RoomPage() {
   const [creatingDevice, setCreatingDevice] =
     useState(false);
 
-  const [deletingDevice, setDeletingDevice] =
-    useState(false);
-
   const [showAddDevice, setShowAddDevice] =
     useState(false);
-
-  const [showDeleteDevice, setShowDeleteDevice] =
-    useState(false);
-
-  const [deviceToDelete, setDeviceToDelete] =
-    useState<Device | null>(null);
 
   const [deviceName, setDeviceName] =
     useState("");
@@ -312,80 +301,6 @@ export default function RoomPage() {
     }
   }
 
-  /* =====================================================
-     OPEN DELETE CONFIRMATION
-  ===================================================== */
-
-  function openDeleteDevice(
-    device: Device
-  ) {
-    setError("");
-    setDeviceToDelete(device);
-    setShowDeleteDevice(true);
-  }
-
-  /* =====================================================
-     DELETE DEVICE
-  ===================================================== */
-
-  async function handleDeleteDevice() {
-    if (!deviceToDelete) {
-      return;
-    }
-
-    setDeletingDevice(true);
-    setError("");
-
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
-        router.replace("/auth/login");
-        return;
-      }
-
-      const {
-        error: deleteError,
-      } = await supabase
-        .from("devices")
-        .delete()
-        .eq(
-          "id",
-          deviceToDelete.id
-        )
-        .eq(
-          "room_id",
-          roomId
-        );
-
-      if (deleteError) {
-        throw deleteError;
-      }
-
-      setDevices(
-        (current) =>
-          current.filter(
-            (device) =>
-              device.id !==
-              deviceToDelete.id
-          )
-      );
-
-      setShowDeleteDevice(false);
-      setDeviceToDelete(null);
-    } catch (err: any) {
-      console.error(err);
-
-      setError(
-        err?.message ||
-          "Unable to delete this device."
-      );
-    } finally {
-      setDeletingDevice(false);
-    }
-  }
 
   /* =====================================================
      CLOSE ADD MODAL
@@ -405,19 +320,6 @@ export default function RoomPage() {
     setError("");
   }
 
-  /* =====================================================
-     CLOSE DELETE MODAL
-  ===================================================== */
-
-  function closeDeleteModal() {
-    if (deletingDevice) {
-      return;
-    }
-
-    setShowDeleteDevice(false);
-    setDeviceToDelete(null);
-    setError("");
-  }
 
     /* =====================================================
      ROOM SKELETON
@@ -676,8 +578,7 @@ export default function RoomPage() {
         ================================================= */}
 
         {error &&
-          !showAddDevice &&
-          !showDeleteDevice && (
+          !showAddDevice && (
             <div className="mb-6 flex items-start gap-3 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-500">
               <AlertTriangle
                 size={18}
@@ -857,22 +758,12 @@ export default function RoomPage() {
 
             <div className="space-y-4">
               {devices.map((device, index) => (
-                <div key={device.id} className="relative">
-                  <DeviceControlPanel
-                    device={device}
-                    defaultExpanded={index === 0}
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => openDeleteDevice(device)}
-                    className={`absolute right-[108px] top-5 z-20 flex h-10 w-10 items-center justify-center rounded-xl border transition hover:text-red-400 ${glassSoft}`}
-                    title="Delete device"
-                    aria-label={`Delete ${device.name}`}
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
+                <div key={device.id}>
+  <DeviceControlPanel
+    device={device}
+    defaultExpanded={index === 0}
+  />
+</div>
               ))}
             </div>
 
@@ -1092,172 +983,6 @@ export default function RoomPage() {
         </div>
       )}
 
-      {/* =====================================================
-          DELETE DEVICE MODAL
-      ===================================================== */}
-
-      {showDeleteDevice &&
-        deviceToDelete && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/30 px-4 backdrop-blur-sm">
-
-            <div className="w-full max-w-md rounded-[28px] border border-slate-100 bg-white p-6 shadow-2xl">
-
-              {/* HEADER */}
-
-              <div className="flex items-start justify-between">
-
-                <div className="flex items-center gap-4">
-
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-50 text-red-500">
-                    <AlertTriangle
-                      size={24}
-                    />
-                  </div>
-
-                  <div>
-
-                    <h2 className="text-xl font-semibold">
-                      Delete Device?
-                    </h2>
-
-                    <p className={`mt-1 text-sm ${muted}`}>
-                      This action cannot be undone.
-                    </p>
-
-                  </div>
-
-                </div>
-
-                <button
-                  onClick={
-                    closeDeleteModal
-                  }
-                  disabled={
-                    deletingDevice
-                  }
-                  className="rounded-xl p-2 text-slate-300 transition hover:bg-slate-50 hover:text-slate-500 disabled:opacity-50"
-                >
-                  <X size={19} />
-                </button>
-
-              </div>
-
-              {/* DEVICE INFO */}
-
-              <div className="mt-6 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-
-                <div className="flex items-center gap-3">
-
-                  <div
-                    className="flex h-10 w-10 items-center justify-center rounded-xl"
-                    style={{
-                      backgroundColor:
-                        `${THEME_COLOR}12`,
-                      color:
-                        THEME_COLOR,
-                    }}
-                  >
-                    <Cpu size={20} />
-                  </div>
-
-                  <div>
-
-                    <p className="text-xs text-slate-400">
-                      Device
-                    </p>
-
-                    <p className="mt-1 font-semibold text-slate-600">
-                      {
-                        deviceToDelete.name
-                      }
-                    </p>
-
-                    <p className="mt-1 font-mono text-xs text-slate-400">
-                      {
-                        deviceToDelete.device_id
-                      }
-                    </p>
-
-                  </div>
-
-                </div>
-
-              </div>
-
-              <p className="mt-4 text-sm leading-6 text-slate-400">
-                The device will be removed from this room and deleted from the database.
-              </p>
-
-              {/* ERROR */}
-
-              {error && (
-                <div className="mt-4 flex items-start gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-500">
-
-                  <AlertTriangle
-                    size={17}
-                    className="mt-0.5 shrink-0"
-                  />
-
-                  <span>
-                    {error}
-                  </span>
-
-                </div>
-              )}
-
-              {/* BUTTONS */}
-
-              <div className="mt-6 flex gap-3">
-
-                <button
-                  onClick={
-                    closeDeleteModal
-                  }
-                  disabled={
-                    deletingDevice
-                  }
-                  className="flex-1 rounded-xl border border-slate-200 bg-white py-3 text-sm font-medium text-slate-500 transition hover:bg-slate-50 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-
-                <button
-                  onClick={
-                    handleDeleteDevice
-                  }
-                  disabled={
-                    deletingDevice
-                  }
-                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-500 py-3 text-sm font-semibold text-white transition hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-
-                  {deletingDevice ? (
-                    <>
-                      <Loader2
-                        size={18}
-                        className="animate-spin"
-                      />
-
-                      Deleting...
-                    </>
-                  ) : (
-                    <>
-                      <Trash2
-                        size={18}
-                      />
-
-                      Delete Device
-                    </>
-                  )}
-
-                </button>
-
-              </div>
-
-            </div>
-
-          </div>
-        )}
 
     </main>
   );
