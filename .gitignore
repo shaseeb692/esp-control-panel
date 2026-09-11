@@ -44,3 +44,5 @@ device-secrets/
 
 device-secrets/
 device-qr/
+
+.device-qr*.png
