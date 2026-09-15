@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { navigateWithTransition } from "@/lib/viewTransition";
 
@@ -27,6 +27,7 @@ import { DeviceControlPanel } from "@/components/devices/DeviceControlPanel";
 ===================================================== */
 
 const THEME_COLOR = "#42B8C5";
+const ONLINE_TIMEOUT_MS = 90 * 1000;
 
 /* =====================================================
    TYPES
@@ -48,6 +49,25 @@ type Device = {
   is_online: boolean;
   last_seen_at: string | null;
 };
+
+function withFreshOnlineState(
+  device: Device,
+  now = Date.now(),
+): Device {
+  const lastSeenTime = device.last_seen_at
+    ? new Date(device.last_seen_at).getTime()
+    : 0;
+
+  const isFresh =
+    Number.isFinite(lastSeenTime) &&
+    lastSeenTime > 0 &&
+    now - lastSeenTime <= ONLINE_TIMEOUT_MS;
+
+  return {
+    ...device,
+    is_online: Boolean(device.is_online) && isFresh,
+  };
+}
 
 /* =====================================================
    MAIN PAGE
@@ -98,6 +118,10 @@ export default function RoomPage() {
 
   const [error, setError] =
     useState("");
+
+  const offlineTimersRef = useRef<
+    Record<string, number>
+  >({});
 
   /* =====================================================
      LOAD ROOM + DEVICES
@@ -169,8 +193,13 @@ export default function RoomPage() {
           throw devicesError;
         }
 
+        const now = Date.now();
+
         setDevices(
-          (devicesData || []) as Device[]
+          ((devicesData || []) as Device[]).map(
+            (device) =>
+              withFreshOnlineState(device, now),
+          ),
         );
       } catch (err: any) {
         console.error(err);
@@ -188,6 +217,134 @@ export default function RoomPage() {
       loadRoom();
     }
   }, [houseId, roomId, router]);
+
+  /* =====================================================
+     REALTIME HEARTBEAT → UPDATE ONLY THAT DEVICE
+  ===================================================== */
+
+  useEffect(() => {
+    if (!roomId) return;
+
+    const channel = supabase
+      .channel(`room-summary-status-${roomId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "device_status",
+        },
+        (payload: any) => {
+          const nextStatus = payload.new;
+
+          if (!nextStatus?.device_id) {
+            return;
+          }
+
+          const lastSeen =
+            nextStatus.last_seen_at ??
+            nextStatus.updated_at ??
+            null;
+
+          setDevices((current) => {
+            let changed = false;
+
+            const next = current.map((device) => {
+              if (
+                device.device_id !==
+                nextStatus.device_id
+              ) {
+                return device;
+              }
+
+              changed = true;
+
+              return {
+                ...device,
+                is_online: Boolean(
+                  nextStatus.online,
+                ),
+                last_seen_at: lastSeen,
+              };
+            });
+
+            return changed ? next : current;
+          });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [roomId]);
+
+  /* =====================================================
+     EXACT OFFLINE TIMEOUTS — NO 5 SECOND POLLING
+  ===================================================== */
+
+  useEffect(() => {
+    Object.values(offlineTimersRef.current).forEach(
+      (timer) => window.clearTimeout(timer),
+    );
+
+    offlineTimersRef.current = {};
+
+    const now = Date.now();
+
+    devices.forEach((device) => {
+      if (!device.is_online || !device.last_seen_at) {
+        return;
+      }
+
+      const lastSeenTime = new Date(
+        device.last_seen_at,
+      ).getTime();
+
+      if (!Number.isFinite(lastSeenTime)) {
+        return;
+      }
+
+      const remaining =
+        lastSeenTime +
+        ONLINE_TIMEOUT_MS -
+        now;
+
+      if (remaining <= 0) {
+        window.queueMicrotask(() => {
+          setDevices((current) =>
+            current.map((item) =>
+              item.device_id === device.device_id &&
+              item.is_online
+                ? { ...item, is_online: false }
+                : item,
+            ),
+          );
+        });
+        return;
+      }
+
+      offlineTimersRef.current[device.device_id] =
+        window.setTimeout(() => {
+          setDevices((current) =>
+            current.map((item) =>
+              item.device_id === device.device_id
+                ? { ...item, is_online: false }
+                : item,
+            ),
+          );
+        }, remaining + 25);
+    });
+
+    return () => {
+      Object.values(
+        offlineTimersRef.current,
+      ).forEach((timer) =>
+        window.clearTimeout(timer),
+      );
+      offlineTimersRef.current = {};
+    };
+  }, [devices]);
 
   /* =====================================================
      ADD DEVICE

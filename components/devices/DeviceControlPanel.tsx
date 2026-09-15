@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -26,6 +27,7 @@ import { supabase } from "@/lib/supabase";
 import { useMasterTheme } from "@/components/theme/MasterThemeProvider";
 
 const THEME_COLOR = "#42B8C5";
+const ONLINE_TIMEOUT_MS = 90 * 1000;
 
 type Device = {
   id: string;
@@ -123,7 +125,7 @@ function crossesMidnight(
   return cleanTime(offTime) <= cleanTime(onTime);
 }
 
-export function DeviceControlPanel({
+export const DeviceControlPanel = memo(function DeviceControlPanel({
   device,
   defaultExpanded = true,
 }: Props) {
@@ -143,6 +145,9 @@ export function DeviceControlPanel({
   const [status, setStatus] =
     useState<DeviceStatus | null>(null);
 
+  const [online, setOnline] =
+    useState(false);
+
   const [loading, setLoading] =
     useState(true);
 
@@ -151,17 +156,6 @@ export function DeviceControlPanel({
 
   const [error, setError] =
     useState("");
-    useEffect(() => {
-  if (!error) return;
-
-  const timer = window.setTimeout(() => {
-    setError("");
-  }, 5000);
-
-  return () => {
-    window.clearTimeout(timer);
-  };
-}, [error]);
 
   const [pending, setPending] =
     useState<Record<string, boolean>>({});
@@ -351,6 +345,61 @@ export function DeviceControlPanel({
       supabase.removeChannel(channel);
     };
   }, [device.device_id, loadData]);
+
+  /* =====================================================
+     HEARTBEAT EXPIRY — EVENT DRIVEN, NO POLLING TICK
+  ===================================================== */
+
+  useEffect(() => {
+    const lastSeenValue =
+      status?.last_seen_at ??
+      status?.updated_at ??
+      device.last_seen_at;
+
+    const databaseOnline = Boolean(
+      status?.online ?? device.is_online,
+    );
+
+    if (!databaseOnline || !lastSeenValue) {
+      setOnline(false);
+      return;
+    }
+
+    const lastSeenTime = new Date(
+      lastSeenValue,
+    ).getTime();
+
+    if (!Number.isFinite(lastSeenTime)) {
+      setOnline(false);
+      return;
+    }
+
+    const remaining =
+      lastSeenTime +
+      ONLINE_TIMEOUT_MS -
+      Date.now();
+
+    if (remaining <= 0) {
+      setOnline(false);
+      return;
+    }
+
+    setOnline(true);
+
+    const timer = window.setTimeout(() => {
+      setOnline(false);
+    }, remaining + 25);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    status?.last_seen_at,
+    status?.updated_at,
+    status?.online,
+    device.last_seen_at,
+    device.is_online,
+  ]);
 
   /* =====================================================
      SEND DEVICE COMMAND
@@ -1180,23 +1229,9 @@ export function DeviceControlPanel({
   }
 
   const lastSeen =
-  status?.last_seen_at ??
-  status?.updated_at ??
-  device.last_seen_at;
-
-const ONLINE_TIMEOUT_MS = 90 * 1000;
-
-const lastSeenTime = lastSeen
-  ? new Date(lastSeen).getTime()
-  : 0;
-
-const isFresh =
-  lastSeenTime > 0 &&
-  Date.now() - lastSeenTime <= ONLINE_TIMEOUT_MS;
-
-const online =
-  Boolean(status?.online ?? device.is_online) &&
-  isFresh;
+    status?.last_seen_at ??
+    status?.updated_at ??
+    device.last_seen_at;
 
   return (
     <>
@@ -2033,4 +2068,4 @@ const online =
       )}
     </>
   );
-}
+});
