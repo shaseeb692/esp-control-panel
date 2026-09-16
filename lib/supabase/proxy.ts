@@ -10,18 +10,31 @@ export async function updateSession(request: NextRequest) {
 
   /* =====================================================
      PUBLIC DEVICE API ROUTES
-     These routes use x-device-key authentication instead
-     of normal Supabase user session authentication.
+
+     IMPORTANT:
+     "Public" here only means these routes do NOT require
+     a normal Supabase browser/user session.
+
+     Each device API route performs its own device
+     authentication.
+
+     /api/device/status
+       -> current prototype x-device-key authentication
+
+     /api/device/claim-session
+       -> x-device-id + unique x-device-secret
   ===================================================== */
 
   const isPublicDeviceApi =
     pathname === "/api/device/status" ||
-    pathname.startsWith("/api/device/status/");
+    pathname.startsWith("/api/device/status/") ||
+    pathname === "/api/device/claim-session" ||
+    pathname.startsWith("/api/device/claim-session/");
 
   if (isPublicDeviceApi) {
     console.log("=================================");
     console.log("PROXY REQUEST:", pathname);
-    console.log("PROXY: allowing public device API");
+    console.log("PROXY: allowing device API authentication");
     console.log("=================================");
 
     return response;
@@ -54,7 +67,7 @@ export async function updateSession(request: NextRequest) {
           });
         },
       },
-    }
+    },
   );
 
   const {
@@ -75,7 +88,7 @@ export async function updateSession(request: NextRequest) {
     console.log("PROXY: redirecting to LOGIN");
 
     return NextResponse.redirect(
-      new URL("/auth/login", request.url)
+      new URL("/auth/login", request.url),
     );
   }
 
@@ -83,7 +96,7 @@ export async function updateSession(request: NextRequest) {
     console.log("PROXY: logged-in user -> dashboard");
 
     return NextResponse.redirect(
-      new URL("/dashboard", request.url)
+      new URL("/dashboard", request.url),
     );
   }
 
