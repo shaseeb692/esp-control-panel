@@ -53,7 +53,7 @@ function extractClaimToken(rawValue: string) {
       ""
     ).trim();
   } catch {
-    // Temporary device QR may contain the raw token.
+    // QR may contain a raw temporary claim token.
   }
 
   if (value.startsWith("claim_")) {
@@ -147,6 +147,7 @@ export default function ClaimDevicePage() {
   const roomId = searchParams.get("roomId") ?? "";
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
+
   const fileInputRef =
     useRef<HTMLInputElement | null>(null);
 
@@ -157,7 +158,9 @@ export default function ClaimDevicePage() {
     useState<ScanState>("idle");
 
   const [claimToken, setClaimToken] = useState("");
+
   const [error, setError] = useState("");
+
   const [successMessage, setSuccessMessage] =
     useState("");
 
@@ -165,6 +168,10 @@ export default function ClaimDevicePage() {
     houseId && roomId
       ? `/house/${houseId}/room/${roomId}`
       : "/dashboard";
+
+  /* =====================================================
+     CLEANUP
+  ===================================================== */
 
   useEffect(() => {
     return () => {
@@ -183,6 +190,10 @@ export default function ClaimDevicePage() {
     };
   }, []);
 
+  /* =====================================================
+     STOP CAMERA
+  ===================================================== */
+
   async function stopCamera() {
     const scanner = scannerRef.current;
 
@@ -197,10 +208,18 @@ export default function ClaimDevicePage() {
     scannerRef.current = null;
   }
 
+  /* =====================================================
+     RESET UI MESSAGES
+  ===================================================== */
+
   function resetMessages() {
     setError("");
     setSuccessMessage("");
   }
+
+  /* =====================================================
+     ACCEPT QR
+  ===================================================== */
 
   function acceptQrValue(decodedText: string) {
     const token = extractClaimToken(decodedText);
@@ -225,6 +244,23 @@ export default function ClaimDevicePage() {
     return true;
   }
 
+  /* =====================================================
+     START CAMERA
+
+     Desktop:
+       Uses available webcam.
+
+     Mobile:
+       Prefers rear/back/environment camera.
+
+     Flow:
+       1. Request browser permission
+       2. Enumerate available cameras
+       3. Prefer rear camera
+       4. Otherwise use first camera
+       5. Start QR scanner
+  ===================================================== */
+
   async function startCamera() {
     resetMessages();
     setClaimToken("");
@@ -233,7 +269,7 @@ export default function ClaimDevicePage() {
       setScanState("error");
 
       setError(
-        "Camera access is not available in this browser. You can upload a QR image instead.",
+        "Camera access is not supported by this browser. You can upload a QR image instead.",
       );
 
       return;
@@ -241,24 +277,102 @@ export default function ClaimDevicePage() {
 
     await stopCamera();
 
-    const scanner = new Html5Qrcode(
-      "device-claim-reader",
-    );
-
-    scannerRef.current = scanner;
-
     try {
+      /* ===============================================
+         REQUEST CAMERA PERMISSION FIRST
+      =============================================== */
+
+      const permissionStream =
+        await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+
+      /*
+        Permission check only.
+
+        Stop this temporary stream before html5-qrcode
+        starts the selected camera.
+      */
+
+      permissionStream
+        .getTracks()
+        .forEach((track) => track.stop());
+
+      /* ===============================================
+         ENUMERATE CAMERAS
+      =============================================== */
+
+      const cameras = await Html5Qrcode.getCameras();
+
+      console.log(
+        "AVAILABLE CAMERAS:",
+        cameras.map((camera) => ({
+          id: camera.id,
+          label: camera.label,
+        })),
+      );
+
+      if (!cameras.length) {
+        setScanState("error");
+
+        setError(
+          "No camera was found on this device. Connect or enable a webcam, or upload a QR image instead.",
+        );
+
+        return;
+      }
+
+      /* ===============================================
+         SELECT BEST CAMERA
+
+         Mobile:
+           Prefer rear/back/environment camera.
+
+         Desktop:
+           Fall back to first available webcam.
+      =============================================== */
+
+      const preferredCamera =
+        cameras.find((camera) =>
+          /back|rear|environment/i.test(
+            camera.label || "",
+          ),
+        ) ?? cameras[0];
+
+      console.log(
+        "SELECTED CAMERA:",
+        preferredCamera.label ||
+          preferredCamera.id,
+      );
+
+      /* ===============================================
+         CREATE QR SCANNER
+      =============================================== */
+
+      const scanner = new Html5Qrcode(
+        "device-claim-reader",
+      );
+
+      scannerRef.current = scanner;
+
       setScanState("scanning");
 
+      /* ===============================================
+         START SELECTED CAMERA
+      =============================================== */
+
       await scanner.start(
-        { facingMode: "environment" },
+        preferredCamera.id,
         {
           fps: 10,
+
           qrbox: {
             width: 240,
             height: 240,
           },
         },
+
         async (decodedText) => {
           if (!acceptQrValue(decodedText)) {
             return;
@@ -266,24 +380,81 @@ export default function ClaimDevicePage() {
 
           await stopCamera();
         },
+
         () => {
-          // Normal frame without QR. Keep scanning.
+          // Normal frame with no QR detected.
         },
       );
     } catch (scanError) {
       scannerRef.current = null;
       setScanState("error");
 
-      const message =
-        scanError instanceof Error
-          ? scanError.message
-          : "Camera could not be started.";
+      console.error(
+        "CAMERA START ERROR:",
+        scanError,
+      );
+
+      let message =
+        "Camera could not be started.";
+
+      /*
+        Browser getUserMedia errors.
+      */
+
+      if (scanError instanceof DOMException) {
+        switch (scanError.name) {
+          case "NotAllowedError":
+            message =
+              "Camera permission was denied. Allow camera access in your browser site settings and try again.";
+            break;
+
+          case "NotFoundError":
+            message =
+              "No usable camera was found on this device.";
+            break;
+
+          case "NotReadableError":
+            message =
+              "The camera is already being used by another application or could not be accessed.";
+            break;
+
+          case "OverconstrainedError":
+            message =
+              "The requested camera configuration is not available.";
+            break;
+
+          case "SecurityError":
+            message =
+              "The browser blocked camera access for this page.";
+            break;
+
+          case "AbortError":
+            message =
+              "Camera startup was interrupted. Please try again.";
+            break;
+
+          default:
+            message =
+              scanError.message ||
+              "Camera could not be started.";
+        }
+      } else if (scanError instanceof Error) {
+        message =
+          scanError.message ||
+          "Camera could not be started.";
+      } else if (typeof scanError === "string") {
+        message = scanError;
+      }
 
       setError(
         `${message} You can still upload the QR image instead.`,
       );
     }
   }
+
+  /* =====================================================
+     QR IMAGE UPLOAD
+  ===================================================== */
 
   async function handleQrImage(
     event: React.ChangeEvent<HTMLInputElement>,
@@ -305,13 +476,16 @@ export default function ClaimDevicePage() {
     );
 
     try {
-      const decodedText = await scanner.scanFile(
-        file,
-        true,
-      );
+      const decodedText =
+        await scanner.scanFile(file, true);
 
       acceptQrValue(decodedText);
-    } catch {
+    } catch (scanError) {
+      console.error(
+        "QR IMAGE READ ERROR:",
+        scanError,
+      );
+
       setScanState("error");
 
       setError(
@@ -325,6 +499,10 @@ export default function ClaimDevicePage() {
       }
     }
   }
+
+  /* =====================================================
+     CLAIM DEVICE
+  ===================================================== */
 
   async function continueToVerification() {
     if (!claimToken) {
@@ -377,6 +555,10 @@ export default function ClaimDevicePage() {
         );
       }
 
+      /* ===============================================
+         CLAIM FAILED
+      =============================================== */
+
       if (!response.ok || !result.ok) {
         setScanState("error");
 
@@ -388,8 +570,8 @@ export default function ClaimDevicePage() {
         );
 
         /*
-          Do not keep an invalid/consumed token ready
-          for another accidental submission.
+          Remove dead tokens so they cannot accidentally
+          be submitted repeatedly.
         */
 
         if (
@@ -405,6 +587,10 @@ export default function ClaimDevicePage() {
         return;
       }
 
+      /* ===============================================
+         CLAIM SUCCESS
+      =============================================== */
+
       setClaimToken("");
       setError("");
       setScanState("success");
@@ -419,10 +605,9 @@ export default function ClaimDevicePage() {
         );
       }
 
-      /*
-        Give the user a moment to see confirmation,
-        then return to the selected room.
-      */
+      /* ===============================================
+         RETURN TO ROOM
+      =============================================== */
 
       redirectTimerRef.current = setTimeout(() => {
         router.replace(
@@ -447,9 +632,17 @@ export default function ClaimDevicePage() {
     }
   }
 
+  /* =====================================================
+     UI STATE
+  ===================================================== */
+
   const busy =
     scanState === "reading" ||
     scanState === "claiming";
+
+  /* =====================================================
+     RENDER
+  ===================================================== */
 
   return (
     <main
@@ -474,6 +667,10 @@ export default function ClaimDevicePage() {
           <section
             className={`rounded-[28px] border p-5 sm:p-7 ${glass}`}
           >
+            {/* =========================================
+                HEADER
+            ========================================== */}
+
             <div className="flex items-start gap-4">
               <div
                 className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${glassSoft}`}
@@ -499,6 +696,10 @@ export default function ClaimDevicePage() {
               </div>
             </div>
 
+            {/* =========================================
+                LIVE CAMERA READER
+            ========================================== */}
+
             <div
               id="device-claim-reader"
               className={`mt-6 overflow-hidden rounded-2xl ${
@@ -508,11 +709,19 @@ export default function ClaimDevicePage() {
               } ${glassSoft}`}
             />
 
+            {/* =========================================
+                HIDDEN FILE QR READER
+            ========================================== */}
+
             <div
               id="device-claim-file-reader"
               className="hidden"
               aria-hidden="true"
             />
+
+            {/* =========================================
+                QR READY
+            ========================================== */}
 
             {scanState === "ready" && (
               <div className="mt-6 flex items-start gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
@@ -535,6 +744,10 @@ export default function ClaimDevicePage() {
                 </div>
               </div>
             )}
+
+            {/* =========================================
+                CLAIMING
+            ========================================== */}
 
             {scanState === "claiming" && (
               <div className="mt-6 flex items-start gap-3 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
@@ -566,6 +779,10 @@ export default function ClaimDevicePage() {
               </div>
             )}
 
+            {/* =========================================
+                SUCCESS
+            ========================================== */}
+
             {scanState === "success" &&
               successMessage && (
                 <div className="mt-6 flex items-start gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
@@ -588,6 +805,10 @@ export default function ClaimDevicePage() {
                 </div>
               )}
 
+            {/* =========================================
+                ERROR
+            ========================================== */}
+
             {error && (
               <div className="mt-6 flex items-start gap-3 rounded-2xl border border-red-500/20 bg-red-500/10 p-4">
                 <XCircle
@@ -603,11 +824,18 @@ export default function ClaimDevicePage() {
               </div>
             )}
 
+            {/* =========================================
+                CAMERA / IMAGE BUTTONS
+            ========================================== */}
+
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
               <button
                 type="button"
                 onClick={startCamera}
-                disabled={busy || scanState === "success"}
+                disabled={
+                  busy ||
+                  scanState === "success"
+                }
                 className="flex min-h-12 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 style={{
                   backgroundColor: THEME_COLOR,
@@ -634,7 +862,10 @@ export default function ClaimDevicePage() {
                 onClick={() =>
                   fileInputRef.current?.click()
                 }
-                disabled={busy || scanState === "success"}
+                disabled={
+                  busy ||
+                  scanState === "success"
+                }
                 className={`flex min-h-12 items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50 ${glassSoft}`}
               >
                 {scanState === "reading" ? (
@@ -662,6 +893,10 @@ export default function ClaimDevicePage() {
               />
             </div>
 
+            {/* =========================================
+                STOP CAMERA
+            ========================================== */}
+
             {scanState === "scanning" && (
               <button
                 type="button"
@@ -674,6 +909,10 @@ export default function ClaimDevicePage() {
                 Stop Camera
               </button>
             )}
+
+            {/* =========================================
+                SECURITY INFO
+            ========================================== */}
 
             <div
               className={`mt-6 rounded-2xl border p-4 ${glassSoft}`}
@@ -706,13 +945,19 @@ export default function ClaimDevicePage() {
               </div>
             </div>
 
+            {/* =========================================
+                ACTIONS
+            ========================================== */}
+
             <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row">
               <button
                 type="button"
                 onClick={() =>
                   router.push(backHref)
                 }
-                disabled={scanState === "claiming"}
+                disabled={
+                  scanState === "claiming"
+                }
                 className={`flex min-h-12 flex-1 items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-medium transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50 ${glassSoft}`}
               >
                 <ArrowLeft size={18} />
