@@ -636,3 +636,33 @@ NEXT SOFTWARE TASK WITHOUT ESP:
 
 Build the new first-internet registration + automatic device discovery
 architecture and replace QR-primary onboarding while preserving QR as fallback.
+
+# 12. GIT PUSH TRACKING
+
+> IMPORTANT: This section MUST be updated before every Git push after development work.
+
+## Last Git Push
+
+- **Date:** 22 September 2026
+- **Time:** [update at push time]
+- **Location / Machine:** Office - SEO-PC
+- **Branch:** main
+- **Commit:** cb04370
+- **Commit Message:** Add two-stage ESP8266 factory identity firmware
+- **Changes:** Added Stage-1 Birth Firmware and updated Stage-2 Final Firmware for two-stage factory device identity architecture.
+
+## Mandatory Git Push Rule
+
+Whenever new development work is completed:
+
+1. Update relevant roadmap point(s) in `brain.md`.
+2. Mark completed work as `✅ DONE`.
+3. Mark partially completed work as `🟡 PARTIAL`.
+4. Mark architecture changes/rework as `🔄 REDO / UPDATED`.
+5. Add newly discovered tasks to the roadmap when required.
+6. Update the **Last Git Push** information above.
+7. Stage source-code changes AND `brain.md`.
+8. Commit them together whenever practical.
+9. Push to GitHub.
+
+`brain.md` must remain synchronized with the actual project state.
