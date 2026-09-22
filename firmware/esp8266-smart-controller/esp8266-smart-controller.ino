@@ -18,7 +18,7 @@
 
   EEPROM:
     0..159   Wi-Fi/application
-    160..367 factory identity (same layout as Stage-1)
+    160..511 factory identity V2 (same layout as Stage-1)
 
   IMPORTANT:
     - Stage-2 DOES NOT generate/provision identity.
@@ -58,10 +58,20 @@ static const uint16_t DEVICE_ID_ADDR        = 176;
 static const uint16_t CHIP_ID_ADDR          = 208;
 static const uint16_t DEVICE_SECRET_ADDR    = 224;
 static const uint16_t IDENTITY_CHECK_ADDR   = 296;
-static const uint16_t IDENTITY_END_ADDR     = 368;
+static const uint16_t MAP_VERSION_ADDR       = 368;
+static const uint16_t DEVICE_SECRET_ID_ADDR  = 376;
+static const uint16_t IDENTITY_END_ADDR      = 512;
+
+static const uint16_t DEVICE_ID_SIZE         = 32;
+static const uint16_t CHIP_ID_SIZE           = 16;
+static const uint16_t DEVICE_SECRET_SIZE     = 65;
+static const uint16_t IDENTITY_CHECK_SIZE    = 65;
+static const uint16_t MAP_VERSION_SIZE       = 8;
+static const uint16_t DEVICE_SECRET_ID_SIZE  = 136;
 
 static const char IDENTITY_MAGIC[] = "PHBIRTH";
-static const uint8_t IDENTITY_VERSION = 1;
+static const uint8_t IDENTITY_VERSION = 2;
+static const char MAP_VERSION[] = "MAP-V1";
 
 /* =========================
    RUNTIME
@@ -76,6 +86,8 @@ String deviceId = "";
 String storedChipId = "";
 String deviceSecret = "";
 String identityCheck = "";
+String storedMapVersion = "";
+String deviceSecretId = "";
 
 bool identityValid = false;
 bool setupMode = false;
@@ -174,15 +186,12 @@ String sha256Hex(const String &input) {
 String calculateIdentityCheck(
   const String &id,
   const String &chip,
-  const String &secret
+  const String &secret,
+  const String &secretId
 ) {
   return sha256Hex(
-    String("PHANTOM|V1|") +
-    id +
-    "|" +
-    chip +
-    "|" +
-    secret
+    String("PHANTOM|IDENTITY|V2|") +
+    id + "|" + chip + "|" + secret + "|" + secretId
   );
 }
 
@@ -209,79 +218,58 @@ bool identityMagicMatches() {
 
 bool loadFactoryIdentity() {
   identityValid = false;
-
   deviceId = "";
   storedChipId = "";
   deviceSecret = "";
   identityCheck = "";
+  storedMapVersion = "";
+  deviceSecretId = "";
 
-  if (!identityMagicMatches()) {
-    return false;
-  }
+  if (!identityMagicMatches()) return false;
 
-  deviceId =
-    readFixedString(
-      DEVICE_ID_ADDR,
-      32
-    );
-
-  storedChipId =
-    readFixedString(
-      CHIP_ID_ADDR,
-      16
-    );
-
-  deviceSecret =
-    readFixedString(
-      DEVICE_SECRET_ADDR,
-      65
-    );
-
-  identityCheck =
-    readFixedString(
-      IDENTITY_CHECK_ADDR,
-      65
-    );
+  deviceId = readFixedString(DEVICE_ID_ADDR, DEVICE_ID_SIZE);
+  storedChipId = readFixedString(CHIP_ID_ADDR, CHIP_ID_SIZE);
+  deviceSecret = readFixedString(DEVICE_SECRET_ADDR, DEVICE_SECRET_SIZE);
+  identityCheck = readFixedString(IDENTITY_CHECK_ADDR, IDENTITY_CHECK_SIZE);
+  storedMapVersion = readFixedString(MAP_VERSION_ADDR, MAP_VERSION_SIZE);
+  deviceSecretId = readFixedString(DEVICE_SECRET_ID_ADDR, DEVICE_SECRET_ID_SIZE);
 
   if (
     deviceId.length() == 0 ||
     storedChipId.length() == 0 ||
     deviceSecret.length() != 64 ||
-    identityCheck.length() != 64
+    identityCheck.length() != 64 ||
+    storedMapVersion != MAP_VERSION ||
+    deviceSecretId.length() == 0
   ) {
+    Serial.println(F("IDENTITY ERROR: V2 DATA MISSING / INVALID"));
     return false;
   }
 
-  if (
-    storedChipId !=
-    currentChipIdHex()
-  ) {
-    Serial.println(
-      F("IDENTITY ERROR: CHIP ID MISMATCH")
-    );
+  String actualChipId = currentChipIdHex();
 
+  if (storedChipId != actualChipId) {
+    Serial.println(F("IDENTITY ERROR: CHIP ID MISMATCH"));
     return false;
   }
 
-  String expected =
-    calculateIdentityCheck(
-      deviceId,
-      storedChipId,
-      deviceSecret
-    );
-
-  if (
-    !identityCheck.equalsIgnoreCase(
-      expected
-    )
-  ) {
-    Serial.println(
-      F("IDENTITY ERROR: INTEGRITY CHECK FAILED")
-    );
-
+  String expectedDeviceId = String("PH-7") + actualChipId;
+  if (deviceId != expectedDeviceId) {
+    Serial.println(F("IDENTITY ERROR: DEVICE ID MISMATCH"));
     return false;
   }
 
+  String expected = calculateIdentityCheck(
+    deviceId, storedChipId, deviceSecret, deviceSecretId
+  );
+
+  if (!identityCheck.equalsIgnoreCase(expected)) {
+    Serial.println(F("IDENTITY ERROR: V2 INTEGRITY CHECK FAILED"));
+    return false;
+  }
+
+  // Factory HMAC key is intentionally NOT present in Stage-2.
+  // Backend/factory verifies DEVICE_SECRET_ID cryptographic authenticity.
   identityValid = true;
   return true;
 }
@@ -328,6 +316,12 @@ void printIdentityStatus() {
     Serial.println(
       storedChipId
     );
+
+    Serial.print(F("MAP VERSION: "));
+    Serial.println(storedMapVersion);
+
+    Serial.print(F("DEVICE_SECRET_ID: "));
+    Serial.println(deviceSecretId);
 
     Serial.println(
       F("DEVICE_SECRET: [HIDDEN]")
@@ -380,6 +374,8 @@ void eraseFactoryIdentity() {
   storedChipId = "";
   deviceSecret = "";
   identityCheck = "";
+  storedMapVersion = "";
+  deviceSecretId = "";
 }
 
 /* =====================================================
