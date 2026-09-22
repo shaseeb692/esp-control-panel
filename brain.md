@@ -1129,3 +1129,49 @@ Whenever new development work is completed:
 9. Push to GitHub.
 
 `brain.md` must remain synchronized with the actual project state.
+
+---
+
+## Development Update — 22 Sep 2026
+
+### Automatic Device Registration & Discovery
+
+- ?  4_device_discovery_sessions — Supabase discovery session table, indexes, RLS and update trigger implemented.
+- ?  5_device_discovery_helpers — discovery expiry and active-session helper functions implemented.
+- ?  6_factory_device_registration — factory registration table implemented for automatic first-online device registration.
+- ?  7_auto_provision_verified_device — verified devices can automatically provision into device_registry.
+- ? pp/api/device/register/route.ts — Identity V2 / MAP-V1 / HMAC factory verification and automatic registration flow implemented.
+- ? Register API automatically provisions verified devices and creates temporary discovery sessions.
+- ? Factory/device secrets are hashed before database storage; raw device secret is not stored.
+- ? PHANTOM_FACTORY_HMAC_KEY configured as a Vercel Production Secret.
+- ?? Current Vercel factory key is for development/testing. Production key must be rotated before release.
+- ?? Birth Firmware factory HMAC key still needs to be synchronized with backend factory key before hardware registration testing.
+- ?? pp/api/device/discover/route.ts created for authenticated discovery of available unclaimed devices; final build/test pending.
+- ?? Physical ESP8266 Stage-1 ? Stage-2 identity preservation and first-online registration test remains pending.
+
+### Current Automatic Flow
+
+Factory Birth Firmware
+? Identity V2 + MAP-V1 + DEVICE_SECRET_ID
+? Final Firmware
+? First Internet Connection
+? /api/device/register
+? Factory Identity Verification
+? device_factory_registrations
+? uto_provision_verified_device
+? device_registry
+? device_discovery_sessions
+? /api/device/discover
+? Add Device / Claim Flow
+
+### Last Git Push Tracking
+
+Previous successful push:
+- Branch: main
+- Commit: 08eeb6
+- Message: Implement MAP-V1 device identity architecture
+
+Next push:
+- Automatic registration/discovery backend implementation.
+- Exact commit hash will be recorded in the next development update.
+
