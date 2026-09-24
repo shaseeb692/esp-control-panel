@@ -1,33 +1,48 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
 import {
   ArrowLeft,
-  Camera,
   CheckCircle2,
-  ImagePlus,
+  Cpu,
   Loader2,
-  QrCode,
+  Radio,
+  RefreshCw,
   ShieldCheck,
+  Wifi,
   XCircle,
 } from "lucide-react";
-import { Html5Qrcode } from "html5-qrcode";
 
+import { createClient } from "@/lib/supabase/client";
 import { useMasterTheme } from "@/components/theme/MasterThemeProvider";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { GlobalHeaderActions } from "@/components/layout/GlobalHeaderActions";
 
 const THEME_COLOR = "#42B8C5";
 
-type ScanState =
-  | "idle"
-  | "scanning"
-  | "reading"
-  | "ready"
-  | "claiming"
-  | "success"
-  | "error";
+type DiscoveryDevice = {
+  discovery_session_id: string;
+  device_id: string;
+  hardware_model: string | null;
+  firmware_version: string | null;
+  lifecycle_state: string | null;
+  expires_at: string;
+};
+
+type DiscoveryResponse = {
+  ok?: boolean;
+  devices?: DiscoveryDevice[];
+  error?: string;
+};
 
 type ClaimResponse = {
   ok?: boolean;
@@ -39,88 +54,51 @@ type ClaimResponse = {
   security_state?: string;
 };
 
-function extractClaimToken(rawValue: string) {
-  const value = rawValue.trim();
+type PageState =
+  | "searching"
+  | "ready"
+  | "claiming"
+  | "success"
+  | "error";
 
-  if (!value) return "";
-
-  try {
-    const url = new URL(value);
-
-    return (
-      url.searchParams.get("token") ??
-      url.searchParams.get("claim_token") ??
-      ""
-    ).trim();
-  } catch {
-    // QR may contain a raw temporary claim token.
-  }
-
-  if (value.startsWith("claim_")) {
-    return value;
-  }
-
-  try {
-    const parsed = JSON.parse(value) as {
-      token?: unknown;
-      claim_token?: unknown;
-    };
-
-    if (typeof parsed.token === "string") {
-      return parsed.token.trim();
-    }
-
-    if (typeof parsed.claim_token === "string") {
-      return parsed.claim_token.trim();
-    }
-  } catch {
-    // Not JSON.
-  }
-
-  return "";
-}
+/* =========================================================
+   ERROR MESSAGE
+========================================================= */
 
 function getClaimErrorMessage(
   code?: string,
   fallback?: string,
 ) {
   switch (code) {
-    case "CLAIM_TOKEN_REQUIRED":
-      return "No device claim token was provided.";
+    case "DISCOVERY_SESSION_NOT_FOUND":
+      return "This device is no longer available. Search again.";
 
-    case "INVALID_TOKEN_FORMAT":
-    case "INVALID_TOKEN":
-      return "This device QR is invalid. Generate a new QR from the device and try again.";
+    case "DISCOVERY_SESSION_EXPIRED":
+      return "The device discovery session expired. Search again.";
 
-    case "TOKEN_EXPIRED":
-      return "This device QR has expired. Generate a new temporary QR from the device.";
-
-    case "TOKEN_USED":
-      return "This device QR has already been used. Generate a new temporary QR if needed.";
-
-    case "TOKEN_REVOKED":
-      return "This device QR is no longer valid. Generate a new temporary QR from the device.";
+    case "DISCOVERY_SESSION_UNAVAILABLE":
+      return "This device is no longer available for setup.";
 
     case "DEVICE_NOT_REGISTERED":
       return "This device is not registered with the system.";
 
     case "DEVICE_UNAVAILABLE":
-      return "This device is currently unavailable for claiming.";
+      return "This device is currently unavailable.";
 
     case "DEVICE_SECURITY_BLOCKED":
       return "This device is locked or blocked by its security state.";
 
     case "OWNED_BY_ANOTHER_USER":
-      return "This device already belongs to another account. Ownership must be released, transferred, or recovered before it can be added.";
+      return "This device already belongs to another account.";
 
     case "HOUSE_NOT_AUTHORIZED":
-      return "You do not have permission to add a device to this house.";
+      return "You do not have permission to add devices to this house.";
 
     case "ROOM_NOT_AUTHORIZED":
-      return "The selected room does not belong to this house or you do not have permission to use it.";
+      return "The selected room is not authorized.";
 
     case "CLAIM_CONFLICT":
-      return "The device ownership changed while the claim was being processed. Please try again.";
+      return "The device ownership changed during setup. Search again.";
 
     case "UNAUTHORIZED":
       return "Your session has expired. Please sign in again.";
@@ -129,45 +107,64 @@ function getClaimErrorMessage(
     case "INVALID_CLAIM_RESPONSE":
     case "SERVER_CONFIG_ERROR":
     case "INTERNAL_SERVER_ERROR":
-      return "The server could not complete the device claim. Please try again.";
+      return "The server could not complete device setup. Please try again.";
 
     default:
-      return fallback || "Unable to claim this device.";
+      return fallback || "Unable to add this device.";
   }
 }
+
+/* =========================================================
+   PAGE
+========================================================= */
 
 export default function ClaimDevicePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const { darkMode, glass, glassSoft, muted } =
-    useMasterTheme();
+  const {
+    darkMode,
+    glass,
+    glassSoft,
+    muted,
+  } = useMasterTheme();
 
-  const houseId = searchParams.get("houseId") ?? "";
-  const roomId = searchParams.get("roomId") ?? "";
+  const houseId =
+    searchParams.get("houseId") ?? "";
 
-  const scannerRef = useRef<Html5Qrcode | null>(null);
-
-  const fileInputRef =
-    useRef<HTMLInputElement | null>(null);
-
-  const redirectTimerRef =
-    useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const [scanState, setScanState] =
-    useState<ScanState>("idle");
-
-  const [claimToken, setClaimToken] = useState("");
-
-  const [error, setError] = useState("");
-
-  const [successMessage, setSuccessMessage] =
-    useState("");
+  const roomId =
+    searchParams.get("roomId") ?? "";
 
   const backHref =
     houseId && roomId
       ? `/house/${houseId}/room/${roomId}`
       : "/dashboard";
+
+  const [devices, setDevices] =
+    useState<DiscoveryDevice[]>([]);
+
+  const [selectedSessionId, setSelectedSessionId] =
+    useState("");
+
+  const [pageState, setPageState] =
+    useState<PageState>("searching");
+
+  const [error, setError] =
+    useState("");
+
+  const [successMessage, setSuccessMessage] =
+    useState("");
+
+  const [hasSearched, setHasSearched] =
+    useState(false);
+
+  const redirectTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(
+      null,
+    );
+
+  const mountedRef =
+    useRef(true);
 
   /* =====================================================
      CLEANUP
@@ -175,354 +172,176 @@ export default function ClaimDevicePage() {
 
   useEffect(() => {
     return () => {
-      const scanner = scannerRef.current;
-
-      if (scanner?.isScanning) {
-        scanner.stop().catch(() => undefined);
-      }
-
-      scannerRef.current = null;
+      mountedRef.current = false;
 
       if (redirectTimerRef.current) {
         clearTimeout(redirectTimerRef.current);
-        redirectTimerRef.current = null;
       }
     };
   }, []);
 
   /* =====================================================
-     STOP CAMERA
+     DISCOVER DEVICES
   ===================================================== */
 
-  async function stopCamera() {
-    const scanner = scannerRef.current;
-
-    if (scanner?.isScanning) {
-      try {
-        await scanner.stop();
-      } catch {
-        // Scanner may already be stopping.
-      }
-    }
-
-    scannerRef.current = null;
-  }
-
-  /* =====================================================
-     RESET UI MESSAGES
-  ===================================================== */
-
-  function resetMessages() {
-    setError("");
-    setSuccessMessage("");
-  }
-
-  /* =====================================================
-     ACCEPT QR
-  ===================================================== */
-
-  function acceptQrValue(decodedText: string) {
-    const token = extractClaimToken(decodedText);
-
-    if (!token) {
-      setClaimToken("");
-      setSuccessMessage("");
-      setScanState("error");
-
-      setError(
-        "This QR code is not a valid device claim QR. Open the Connect Device tab on your ESP and scan the temporary QR shown there.",
-      );
-
-      return false;
-    }
-
-    setClaimToken(token);
-    setError("");
-    setSuccessMessage("");
-    setScanState("ready");
-
-    return true;
-  }
-
-  /* =====================================================
-     START CAMERA
-
-     Desktop:
-       Uses available webcam.
-
-     Mobile:
-       Prefers rear/back/environment camera.
-
-     Flow:
-       1. Request browser permission
-       2. Enumerate available cameras
-       3. Prefer rear camera
-       4. Otherwise use first camera
-       5. Start QR scanner
-  ===================================================== */
-
-  async function startCamera() {
-    resetMessages();
-    setClaimToken("");
-
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setScanState("error");
-
-      setError(
-        "Camera access is not supported by this browser. You can upload a QR image instead.",
-      );
-
-      return;
-    }
-
-    await stopCamera();
-
-    try {
-      /* ===============================================
-         REQUEST CAMERA PERMISSION FIRST
-      =============================================== */
-
-      const permissionStream =
-        await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: false,
-        });
-
-      /*
-        Permission check only.
-
-        Stop this temporary stream before html5-qrcode
-        starts the selected camera.
-      */
-
-      permissionStream
-        .getTracks()
-        .forEach((track) => track.stop());
-
-      /* ===============================================
-         ENUMERATE CAMERAS
-      =============================================== */
-
-      const cameras = await Html5Qrcode.getCameras();
-
-      console.log(
-        "AVAILABLE CAMERAS:",
-        cameras.map((camera) => ({
-          id: camera.id,
-          label: camera.label,
-        })),
-      );
-
-      if (!cameras.length) {
-        setScanState("error");
+  const discoverDevices = useCallback(
+    async (manual = false) => {
+      if (!houseId || !roomId) {
+        setDevices([]);
+        setSelectedSessionId("");
+        setPageState("error");
 
         setError(
-          "No camera was found on this device. Connect or enable a webcam, or upload a QR image instead.",
+          "House or room information is missing. Return to the room and start Add Device again.",
         );
 
+        setHasSearched(true);
         return;
       }
 
-      /* ===============================================
-         SELECT BEST CAMERA
+      setError("");
+      setSuccessMessage("");
+      setPageState("searching");
 
-         Mobile:
-           Prefer rear/back/environment camera.
+      if (manual) {
+        setDevices([]);
+        setSelectedSessionId("");
+      }
 
-         Desktop:
-           Fall back to first available webcam.
-      =============================================== */
+      try {
+        const supabase = createClient();
 
-      const preferredCamera =
-        cameras.find((camera) =>
-          /back|rear|environment/i.test(
-            camera.label || "",
-          ),
-        ) ?? cameras[0];
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
 
-      console.log(
-        "SELECTED CAMERA:",
-        preferredCamera.label ||
-          preferredCamera.id,
-      );
+        if (sessionError || !session) {
+          throw new Error(
+            "Your session has expired. Please sign in again.",
+          );
+        }
 
-      /* ===============================================
-         CREATE QR SCANNER
-      =============================================== */
+        const response = await fetch(
+          "/api/device/discover",
+          {
+            method: "GET",
 
-      const scanner = new Html5Qrcode(
-        "device-claim-reader",
-      );
+            headers: {
+              Authorization:
+                `Bearer ${session.access_token}`,
+            },
 
-      scannerRef.current = scanner;
-
-      setScanState("scanning");
-
-      /* ===============================================
-         START SELECTED CAMERA
-      =============================================== */
-
-      await scanner.start(
-        preferredCamera.id,
-        {
-          fps: 10,
-
-          qrbox: {
-            width: 240,
-            height: 240,
+            cache: "no-store",
           },
-        },
+        );
 
-        async (decodedText) => {
-          if (!acceptQrValue(decodedText)) {
-            return;
+        let result: DiscoveryResponse;
+
+        try {
+          result =
+            (await response.json()) as DiscoveryResponse;
+        } catch {
+          throw new Error(
+            "The server returned an invalid discovery response.",
+          );
+        }
+
+        if (!response.ok || !result.ok) {
+          if (response.status === 401) {
+            throw new Error(
+              "Your session has expired. Please sign in again.",
+            );
           }
 
-          await stopCamera();
-        },
-
-        () => {
-          // Normal frame with no QR detected.
-        },
-      );
-    } catch (scanError) {
-      scannerRef.current = null;
-      setScanState("error");
-
-      console.error(
-        "CAMERA START ERROR:",
-        scanError,
-      );
-
-      let message =
-        "Camera could not be started.";
-
-      /*
-        Browser getUserMedia errors.
-      */
-
-      if (scanError instanceof DOMException) {
-        switch (scanError.name) {
-          case "NotAllowedError":
-            message =
-              "Camera permission was denied. Allow camera access in your browser site settings and try again.";
-            break;
-
-          case "NotFoundError":
-            message =
-              "No usable camera was found on this device.";
-            break;
-
-          case "NotReadableError":
-            message =
-              "The camera is already being used by another application or could not be accessed.";
-            break;
-
-          case "OverconstrainedError":
-            message =
-              "The requested camera configuration is not available.";
-            break;
-
-          case "SecurityError":
-            message =
-              "The browser blocked camera access for this page.";
-            break;
-
-          case "AbortError":
-            message =
-              "Camera startup was interrupted. Please try again.";
-            break;
-
-          default:
-            message =
-              scanError.message ||
-              "Camera could not be started.";
+          throw new Error(
+            result.error ||
+              "Unable to search for devices.",
+          );
         }
-      } else if (scanError instanceof Error) {
-        message =
-          scanError.message ||
-          "Camera could not be started.";
-      } else if (typeof scanError === "string") {
-        message = scanError;
-      }
 
-      setError(
-        `${message} You can still upload the QR image instead.`,
-      );
-    }
-  }
+        if (!mountedRef.current) {
+          return;
+        }
+
+        const foundDevices =
+          result.devices ?? [];
+
+        setDevices(foundDevices);
+
+        /*
+          Automatically select when exactly one
+          device is available.
+
+          With multiple devices the user chooses
+          the physical unit they are setting up.
+        */
+
+        if (foundDevices.length === 1) {
+          setSelectedSessionId(
+            foundDevices[0].discovery_session_id,
+          );
+        } else {
+          setSelectedSessionId("");
+        }
+
+        setPageState("ready");
+        setHasSearched(true);
+      } catch (discoverError) {
+        console.error(
+          "DEVICE DISCOVERY ERROR:",
+          discoverError,
+        );
+
+        if (!mountedRef.current) {
+          return;
+        }
+
+        setDevices([]);
+        setSelectedSessionId("");
+        setPageState("error");
+        setHasSearched(true);
+
+        setError(
+          discoverError instanceof Error
+            ? discoverError.message
+            : "Unable to search for devices.",
+        );
+      }
+    },
+    [houseId, roomId],
+  );
 
   /* =====================================================
-     QR IMAGE UPLOAD
+     INITIAL DISCOVERY
   ===================================================== */
 
-  async function handleQrImage(
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) {
-    const file = event.target.files?.[0];
-
-    event.target.value = "";
-
-    if (!file) return;
-
-    resetMessages();
-    setClaimToken("");
-    setScanState("reading");
-
-    await stopCamera();
-
-    const scanner = new Html5Qrcode(
-      "device-claim-file-reader",
-    );
-
-    try {
-      const decodedText =
-        await scanner.scanFile(file, true);
-
-      acceptQrValue(decodedText);
-    } catch (scanError) {
-      console.error(
-        "QR IMAGE READ ERROR:",
-        scanError,
-      );
-
-      setScanState("error");
-
-      setError(
-        "QR code could not be read from this image. Try a clearer image or use the camera scanner.",
-      );
-    } finally {
-      try {
-        scanner.clear();
-      } catch {
-        // Nothing to clear.
-      }
-    }
-  }
+  useEffect(() => {
+    void discoverDevices();
+  }, [discoverDevices]);
 
   /* =====================================================
-     CLAIM DEVICE
+     CLAIM SELECTED DEVICE
   ===================================================== */
 
-  async function continueToVerification() {
-    if (!claimToken) {
-      setScanState("error");
-      setError("Scan a valid device QR first.");
+  async function addSelectedDevice() {
+    if (!selectedSessionId) {
+      setError(
+        "Select a device before continuing.",
+      );
       return;
     }
 
     if (!houseId || !roomId) {
-      setScanState("error");
-
       setError(
-        "House or room information is missing. Return to the room and start Add Device again.",
+        "House or room information is missing.",
       );
-
       return;
     }
 
-    resetMessages();
-    setScanState("claiming");
+    setError("");
+    setSuccessMessage("");
+    setPageState("claiming");
 
     try {
       const response = await fetch(
@@ -531,15 +350,21 @@ export default function ClaimDevicePage() {
           method: "POST",
 
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type":
+              "application/json",
           },
 
           credentials: "same-origin",
 
           body: JSON.stringify({
-            claim_token: claimToken,
-            house_id: houseId,
-            room_id: roomId,
+            discovery_session_id:
+              selectedSessionId,
+
+            house_id:
+              houseId,
+
+            room_id:
+              roomId,
           }),
         },
       );
@@ -555,12 +380,8 @@ export default function ClaimDevicePage() {
         );
       }
 
-      /* ===============================================
-         CLAIM FAILED
-      =============================================== */
-
       if (!response.ok || !result.ok) {
-        setScanState("error");
+        setPageState("ready");
 
         setError(
           getClaimErrorMessage(
@@ -570,75 +391,65 @@ export default function ClaimDevicePage() {
         );
 
         /*
-          Remove dead tokens so they cannot accidentally
-          be submitted repeatedly.
+          These states mean the discovery result
+          should no longer remain selectable.
         */
 
         if (
-          result.code === "TOKEN_EXPIRED" ||
-          result.code === "TOKEN_USED" ||
-          result.code === "TOKEN_REVOKED" ||
-          result.code === "INVALID_TOKEN" ||
-          result.code === "INVALID_TOKEN_FORMAT"
+          result.code ===
+            "DISCOVERY_SESSION_NOT_FOUND" ||
+          result.code ===
+            "DISCOVERY_SESSION_EXPIRED" ||
+          result.code ===
+            "DISCOVERY_SESSION_UNAVAILABLE" ||
+          result.code ===
+            "OWNED_BY_ANOTHER_USER" ||
+          result.code ===
+            "DEVICE_UNAVAILABLE"
         ) {
-          setClaimToken("");
+          setSelectedSessionId("");
         }
 
         return;
       }
 
-      /* ===============================================
-         CLAIM SUCCESS
-      =============================================== */
-
-      setClaimToken("");
       setError("");
-      setScanState("success");
+      setSelectedSessionId("");
+      setPageState("success");
 
-      if (result.code === "ALREADY_OWNED") {
-        setSuccessMessage(
-          "This device already belongs to your account. It has been attached to the selected room.",
-        );
-      } else {
-        setSuccessMessage(
-          "Device claimed successfully. It is now connected to this room.",
-        );
-      }
+      setSuccessMessage(
+        result.code === "ALREADY_OWNED"
+          ? "Device is connected to this room."
+          : "Device added successfully. It is now connected to this room.",
+      );
 
-      /* ===============================================
-         RETURN TO ROOM
-      =============================================== */
+      redirectTimerRef.current =
+        setTimeout(() => {
+          router.replace(
+            `/house/${houseId}/room/${roomId}`,
+          );
 
-      redirectTimerRef.current = setTimeout(() => {
-        router.replace(
-          `/house/${houseId}/room/${roomId}`,
-        );
-
-        router.refresh();
-      }, 1200);
+          router.refresh();
+        }, 1200);
     } catch (claimError) {
       console.error(
         "DEVICE CLAIM ERROR:",
         claimError,
       );
 
-      setScanState("error");
+      setPageState("ready");
 
       setError(
         claimError instanceof Error
           ? claimError.message
-          : "Unable to contact the server. Please try again.",
+          : "Unable to contact the server.",
       );
     }
   }
 
-  /* =====================================================
-     UI STATE
-  ===================================================== */
-
   const busy =
-    scanState === "reading" ||
-    scanState === "claiming";
+    pageState === "searching" ||
+    pageState === "claiming";
 
   /* =====================================================
      RENDER
@@ -656,8 +467,8 @@ export default function ClaimDevicePage() {
         <AppHeader
           eyebrow="Device Setup"
           title="Add Device"
-          subtitle="Scan the temporary QR shown by your ESP"
-          icon={<QrCode size={25} />}
+          subtitle="Find and connect your smart device"
+          icon={<Radio size={25} />}
           backHref={backHref}
           backLabel="Room"
           actions={<GlobalHeaderActions />}
@@ -678,78 +489,210 @@ export default function ClaimDevicePage() {
                   color: THEME_COLOR,
                 }}
               >
-                <QrCode size={24} />
+                <Wifi size={24} />
               </div>
 
               <div className="min-w-0">
                 <h1 className="text-xl font-semibold">
-                  Scan Device QR
+                  Find Device
                 </h1>
 
                 <p
                   className={`mt-1 text-sm leading-6 ${muted}`}
                 >
-                  Open your ESP&apos;s local IP,
-                  select Connect Device, and scan the
-                  temporary QR displayed there.
+                  Make sure your device is powered on
+                  and connected to Wi-Fi. Available
+                  devices will appear automatically.
                 </p>
               </div>
             </div>
 
             {/* =========================================
-                LIVE CAMERA READER
+                SEARCHING
             ========================================== */}
 
-            <div
-              id="device-claim-reader"
-              className={`mt-6 overflow-hidden rounded-2xl ${
-                scanState === "scanning"
-                  ? "min-h-[280px] border"
-                  : ""
-              } ${glassSoft}`}
-            />
-
-            {/* =========================================
-                HIDDEN FILE QR READER
-            ========================================== */}
-
-            <div
-              id="device-claim-file-reader"
-              className="hidden"
-              aria-hidden="true"
-            />
-
-            {/* =========================================
-                QR READY
-            ========================================== */}
-
-            {scanState === "ready" && (
-              <div className="mt-6 flex items-start gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-                <CheckCircle2
-                  size={21}
-                  className="mt-0.5 shrink-0 text-emerald-500"
+            {pageState === "searching" && (
+              <div
+                className={`mt-6 rounded-2xl border p-6 text-center ${glassSoft}`}
+              >
+                <Loader2
+                  size={32}
+                  className="mx-auto animate-spin"
+                  style={{
+                    color: THEME_COLOR,
+                  }}
                 />
 
-                <div>
-                  <p className="font-semibold text-emerald-500">
-                    Device QR detected
+                <p
+                  className="mt-4 font-semibold"
+                  style={{
+                    color: THEME_COLOR,
+                  }}
+                >
+                  Searching for devices...
+                </p>
+
+                <p
+                  className={`mt-1 text-sm ${muted}`}
+                >
+                  Looking for available devices ready
+                  to be added.
+                </p>
+              </div>
+            )}
+
+            {/* =========================================
+                NO DEVICES
+            ========================================== */}
+
+            {pageState !== "searching" &&
+              pageState !== "success" &&
+              hasSearched &&
+              devices.length === 0 && (
+                <div
+                  className={`mt-6 rounded-2xl border p-6 text-center ${glassSoft}`}
+                >
+                  <Radio
+                    size={32}
+                    className="mx-auto"
+                    style={{
+                      color: THEME_COLOR,
+                    }}
+                  />
+
+                  <p className="mt-4 font-semibold">
+                    No devices found
                   </p>
 
                   <p
-                    className={`mt-1 text-sm ${muted}`}
+                    className={`mt-1 text-sm leading-6 ${muted}`}
                   >
-                    The temporary claim token is ready
-                    for secure verification.
+                    Power on the device and make sure
+                    it has completed Wi-Fi setup, then
+                    search again.
                   </p>
                 </div>
-              </div>
-            )}
+              )}
+
+            {/* =========================================
+                DEVICE LIST
+            ========================================== */}
+
+            {pageState !== "searching" &&
+              pageState !== "success" &&
+              devices.length > 0 && (
+                <div className="mt-6 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold">
+                        Available Devices
+                      </p>
+
+                      <p
+                        className={`mt-1 text-sm ${muted}`}
+                      >
+                        {devices.length === 1
+                          ? "1 device found"
+                          : `${devices.length} devices found`}
+                      </p>
+                    </div>
+
+                    <Radio
+                      size={20}
+                      style={{
+                        color: THEME_COLOR,
+                      }}
+                    />
+                  </div>
+
+                  {devices.map((device) => {
+                    const selected =
+                      selectedSessionId ===
+                      device.discovery_session_id;
+
+                    return (
+                      <button
+                        key={
+                          device.discovery_session_id
+                        }
+                        type="button"
+                        onClick={() => {
+                          setSelectedSessionId(
+                            device.discovery_session_id,
+                          );
+
+                          setError("");
+                        }}
+                        disabled={busy}
+                        className={`w-full rounded-2xl border p-4 text-left transition ${
+                          selected
+                            ? "ring-2"
+                            : ""
+                        } ${glassSoft}`}
+                        style={
+                          selected
+                            ? {
+                                borderColor:
+                                  THEME_COLOR,
+
+                                boxShadow:
+                                  `0 0 0 1px ${THEME_COLOR}`,
+                              }
+                            : undefined
+                        }
+                      >
+                        <div className="flex items-center gap-4">
+                          <div
+                            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border"
+                            style={{
+                              color:
+                                THEME_COLOR,
+                            }}
+                          >
+                            <Cpu size={22} />
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="truncate font-semibold">
+                                {device.device_id}
+                              </p>
+
+                              {selected && (
+                                <CheckCircle2
+                                  size={17}
+                                  className="shrink-0"
+                                  style={{
+                                    color:
+                                      THEME_COLOR,
+                                  }}
+                                />
+                              )}
+                            </div>
+
+                            <p
+                              className={`mt-1 text-sm ${muted}`}
+                            >
+                              {device.hardware_model ||
+                                "Smart Device"}
+
+                              {device.firmware_version
+                                ? ` • Firmware ${device.firmware_version}`
+                                : ""}
+                            </p>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
             {/* =========================================
                 CLAIMING
             ========================================== */}
 
-            {scanState === "claiming" && (
+            {pageState === "claiming" && (
               <div className="mt-6 flex items-start gap-3 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
                 <Loader2
                   size={21}
@@ -766,14 +709,14 @@ export default function ClaimDevicePage() {
                       color: THEME_COLOR,
                     }}
                   >
-                    Verifying device...
+                    Adding device...
                   </p>
 
                   <p
                     className={`mt-1 text-sm ${muted}`}
                   >
-                    Checking the temporary token,
-                    ownership and device security.
+                    Verifying ownership, security and
+                    room access.
                   </p>
                 </div>
               </div>
@@ -783,7 +726,7 @@ export default function ClaimDevicePage() {
                 SUCCESS
             ========================================== */}
 
-            {scanState === "success" &&
+            {pageState === "success" &&
               successMessage && (
                 <div className="mt-6 flex items-start gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
                   <CheckCircle2
@@ -797,7 +740,7 @@ export default function ClaimDevicePage() {
                     </p>
 
                     <p
-                      className={`mt-1 text-sm leading-6 ${muted}`}
+                      className={`mt-1 text-sm ${muted}`}
                     >
                       {successMessage}
                     </p>
@@ -825,179 +768,125 @@ export default function ClaimDevicePage() {
             )}
 
             {/* =========================================
-                CAMERA / IMAGE BUTTONS
-            ========================================== */}
-
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={startCamera}
-                disabled={
-                  busy ||
-                  scanState === "success"
-                }
-                className="flex min-h-12 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                style={{
-                  backgroundColor: THEME_COLOR,
-                }}
-              >
-                {scanState === "scanning" ? (
-                  <>
-                    <Loader2
-                      size={18}
-                      className="animate-spin"
-                    />
-                    Scanning...
-                  </>
-                ) : (
-                  <>
-                    <Camera size={18} />
-                    Scan with Camera
-                  </>
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  fileInputRef.current?.click()
-                }
-                disabled={
-                  busy ||
-                  scanState === "success"
-                }
-                className={`flex min-h-12 items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50 ${glassSoft}`}
-              >
-                {scanState === "reading" ? (
-                  <>
-                    <Loader2
-                      size={18}
-                      className="animate-spin"
-                    />
-                    Reading...
-                  </>
-                ) : (
-                  <>
-                    <ImagePlus size={18} />
-                    Upload QR Image
-                  </>
-                )}
-              </button>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleQrImage}
-                className="hidden"
-              />
-            </div>
-
-            {/* =========================================
-                STOP CAMERA
-            ========================================== */}
-
-            {scanState === "scanning" && (
-              <button
-                type="button"
-                onClick={async () => {
-                  await stopCamera();
-                  setScanState("idle");
-                }}
-                className={`mt-3 w-full rounded-2xl border px-4 py-3 text-sm font-medium transition hover:opacity-80 ${glassSoft}`}
-              >
-                Stop Camera
-              </button>
-            )}
-
-            {/* =========================================
                 SECURITY INFO
             ========================================== */}
 
-            <div
-              className={`mt-6 rounded-2xl border p-4 ${glassSoft}`}
-            >
-              <div className="flex items-start gap-3">
-                <ShieldCheck
-                  size={20}
-                  className="mt-0.5 shrink-0"
-                  style={{
-                    color: THEME_COLOR,
-                  }}
-                />
+            {pageState !== "success" && (
+              <div
+                className={`mt-6 rounded-2xl border p-4 ${glassSoft}`}
+              >
+                <div className="flex items-start gap-3">
+                  <ShieldCheck
+                    size={20}
+                    className="mt-0.5 shrink-0"
+                    style={{
+                      color: THEME_COLOR,
+                    }}
+                  />
 
-                <div>
-                  <p className="text-sm font-semibold">
-                    Secure device claim
-                  </p>
+                  <div>
+                    <p className="text-sm font-semibold">
+                      Secure device setup
+                    </p>
 
-                  <p
-                    className={`mt-1 text-sm leading-6 ${muted}`}
-                  >
-                    The QR contains a short-lived
-                    one-time claim token, not the
-                    permanent device secret. Ownership,
-                    room authorization and device
-                    security are checked by the server
-                    before the device is added.
-                  </p>
+                    <p
+                      className={`mt-1 text-sm leading-6 ${muted}`}
+                    >
+                      Only registered and available
+                      devices can be added. Ownership,
+                      room authorization and device
+                      security are verified by the
+                      server before setup completes.
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* =========================================
                 ACTIONS
             ========================================== */}
 
-            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row">
-              <button
-                type="button"
-                onClick={() =>
-                  router.push(backHref)
-                }
-                disabled={
-                  scanState === "claiming"
-                }
-                className={`flex min-h-12 flex-1 items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-medium transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50 ${glassSoft}`}
-              >
-                <ArrowLeft size={18} />
-                Back
-              </button>
+            {pageState !== "success" && (
+              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() =>
+                    router.push(backHref)
+                  }
+                  disabled={
+                    pageState === "claiming"
+                  }
+                  className={`flex min-h-12 flex-1 items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-medium transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50 ${glassSoft}`}
+                >
+                  <ArrowLeft size={18} />
+                  Back
+                </button>
 
-              <button
-                type="button"
-                onClick={continueToVerification}
-                disabled={
-                  !claimToken ||
-                  scanState === "claiming" ||
-                  scanState === "success"
-                }
-                className="flex min-h-12 flex-1 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                style={{
-                  backgroundColor: THEME_COLOR,
-                }}
-              >
-                {scanState === "claiming" ? (
-                  <>
-                    <Loader2
-                      size={18}
-                      className="animate-spin"
-                    />
-                    Verifying...
-                  </>
-                ) : scanState === "success" ? (
-                  <>
-                    <CheckCircle2 size={18} />
-                    Connected
-                  </>
+                {devices.length === 0 ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void discoverDevices(true)
+                    }
+                    disabled={busy}
+                    className="flex min-h-12 flex-1 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{
+                      backgroundColor:
+                        THEME_COLOR,
+                    }}
+                  >
+                    {pageState ===
+                    "searching" ? (
+                      <>
+                        <Loader2
+                          size={18}
+                          className="animate-spin"
+                        />
+                        Searching...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw size={18} />
+                        Search Again
+                      </>
+                    )}
+                  </button>
                 ) : (
-                  <>
-                    <ShieldCheck size={18} />
-                    Verify Device
-                  </>
+                  <button
+                    type="button"
+                    onClick={addSelectedDevice}
+                    disabled={
+                      !selectedSessionId ||
+                      busy
+                    }
+                    className="flex min-h-12 flex-1 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                    style={{
+                      backgroundColor:
+                        THEME_COLOR,
+                    }}
+                  >
+                    {pageState ===
+                    "claiming" ? (
+                      <>
+                        <Loader2
+                          size={18}
+                          className="animate-spin"
+                        />
+                        Adding...
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck
+                          size={18}
+                        />
+                        Add Device
+                      </>
+                    )}
+                  </button>
                 )}
-              </button>
-            </div>
+              </div>
+            )}
           </section>
         </div>
       </div>

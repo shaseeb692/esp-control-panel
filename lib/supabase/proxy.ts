@@ -19,17 +19,17 @@ export async function updateSession(request: NextRequest) {
      authentication.
 
      /api/device/status
-       -> current prototype x-device-key authentication
+       -> current prototype device authentication
 
-     /api/device/claim-session
-       -> x-device-id + unique x-device-secret
+     NOTE:
+     Legacy /api/device/claim-session has been removed
+     from this bypass. Device claiming now uses the
+     discovery-based authenticated flow.
   ===================================================== */
 
   const isPublicDeviceApi =
     pathname === "/api/device/status" ||
-    pathname.startsWith("/api/device/status/") ||
-    pathname === "/api/device/claim-session" ||
-    pathname.startsWith("/api/device/claim-session/");
+    pathname.startsWith("/api/device/status/");
 
   if (isPublicDeviceApi) {
     console.log("=================================");

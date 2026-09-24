@@ -1,18 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
-import crypto from "crypto";
 
 /* =========================================================
    HELPERS
 ========================================================= */
-
-function sha256(value: string) {
-  return crypto
-    .createHash("sha256")
-    .update(value, "utf8")
-    .digest("hex");
-}
 
 function jsonError(
   message: string,
@@ -32,14 +24,16 @@ function jsonError(
 /* =========================================================
    POST /api/device/claim
 
-   Browser-authenticated endpoint.
+   Discovery-based browser-authenticated claim endpoint.
 
    Body:
    {
-     claim_token: string,
+     discovery_session_id: string,
      house_id: string,
      room_id: string
    }
+
+   QR / raw claim token is NOT used.
 ========================================================= */
 
 export async function POST(request: NextRequest) {
@@ -88,9 +82,8 @@ export async function POST(request: NextRequest) {
 
           setAll() {
             /*
-              No cookie mutation is required inside this
-              API handler. Session refreshing is handled
-              by the application's proxy/session layer.
+              Session refresh is handled by the
+              application's proxy/session layer.
             */
           },
         },
@@ -115,12 +108,12 @@ export async function POST(request: NextRequest) {
     ===================================================== */
 
     let body: {
-      claim_token?: unknown;
+      discovery_session_id?: unknown;
       house_id?: unknown;
       room_id?: unknown;
 
-      // Also accept camelCase from frontend.
-      claimToken?: unknown;
+      // CamelCase compatibility.
+      discoverySessionId?: unknown;
       houseId?: unknown;
       roomId?: unknown;
     };
@@ -135,11 +128,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const rawClaimToken =
-      typeof body.claim_token === "string"
-        ? body.claim_token.trim()
-        : typeof body.claimToken === "string"
-          ? body.claimToken.trim()
+    const discoverySessionId =
+      typeof body.discovery_session_id === "string"
+        ? body.discovery_session_id.trim()
+        : typeof body.discoverySessionId === "string"
+          ? body.discoverySessionId.trim()
           : "";
 
     const houseId =
@@ -156,11 +149,15 @@ export async function POST(request: NextRequest) {
           ? body.roomId.trim()
           : "";
 
-    if (!rawClaimToken) {
+    /* =====================================================
+       BASIC VALIDATION
+    ===================================================== */
+
+    if (!discoverySessionId) {
       return jsonError(
-        "Device claim token is required.",
+        "Discovery session ID is required.",
         400,
-        "CLAIM_TOKEN_REQUIRED",
+        "DISCOVERY_SESSION_REQUIRED",
       );
     }
 
@@ -181,46 +178,54 @@ export async function POST(request: NextRequest) {
     }
 
     /*
-      Current claim-session tokens use:
+      UUID validation.
 
-      claim_<base64url random bytes>
+      Prevent malformed values from reaching PostgreSQL
+      uuid parameters and generating unnecessary DB errors.
     */
 
-    if (
-      !rawClaimToken.startsWith("claim_") ||
-      rawClaimToken.length < 20 ||
-      rawClaimToken.length > 200
-    ) {
+    const uuidPattern =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    if (!uuidPattern.test(discoverySessionId)) {
       return jsonError(
-        "Invalid device claim token.",
+        "Invalid discovery session ID.",
         400,
-        "INVALID_TOKEN_FORMAT",
+        "INVALID_DISCOVERY_SESSION_ID",
+      );
+    }
+
+    if (!uuidPattern.test(houseId)) {
+      return jsonError(
+        "Invalid house ID.",
+        400,
+        "INVALID_HOUSE_ID",
+      );
+    }
+
+    if (!uuidPattern.test(roomId)) {
+      return jsonError(
+        "Invalid room ID.",
+        400,
+        "INVALID_ROOM_ID",
       );
     }
 
     /* =====================================================
-       HASH TOKEN
-
-       Raw temporary token never needs to be stored in DB.
-    ===================================================== */
-
-    const tokenHash = sha256(rawClaimToken);
-
-    /* =====================================================
        SERVICE ROLE
 
-       Used only after browser user identity has been
-       established above.
+       Browser user has already been authenticated.
 
-       complete_device_claim() independently validates:
-       - token
+       Database RPC independently validates:
+       - discovery session
        - expiry
-       - used/revoked state
        - device registry
+       - lifecycle state
        - security state
        - house ownership
        - room relationship
-       - existing ownership
+       - existing device ownership
+       - concurrent claim conflicts
     ===================================================== */
 
     const admin = createClient(
@@ -235,18 +240,25 @@ export async function POST(request: NextRequest) {
     );
 
     const { data, error } = await admin.rpc(
-      "complete_device_claim",
+      "complete_device_discovery_claim",
       {
-        p_token_hash: tokenHash,
-        p_user_id: user.id,
-        p_house_id: houseId,
-        p_room_id: roomId,
+        p_discovery_session_id:
+          discoverySessionId,
+
+        p_user_id:
+          user.id,
+
+        p_house_id:
+          houseId,
+
+        p_room_id:
+          roomId,
       },
     );
 
     if (error) {
       console.error(
-        "CLAIM API RPC ERROR:",
+        "DISCOVERY CLAIM RPC ERROR:",
         error,
       );
 
@@ -288,13 +300,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           ok: true,
-          code: result.code ?? "CLAIMED",
+
+          code:
+            result.code ??
+            "CLAIMED",
+
           message:
             result.message ??
             "Device claimed successfully.",
-          device_id: result.device_id,
-          house_id: result.house_id ?? houseId,
-          room_id: result.room_id ?? roomId,
+
+          device_id:
+            result.device_id,
+
+          house_id:
+            result.house_id ??
+            houseId,
+
+          room_id:
+            result.room_id ??
+            roomId,
         },
         { status: 200 },
       );
@@ -305,16 +329,25 @@ export async function POST(request: NextRequest) {
     ===================================================== */
 
     const code =
-      result.code ?? "CLAIM_FAILED";
+      result.code ??
+      "CLAIM_FAILED";
 
     let status = 400;
 
     switch (code) {
-      case "INVALID_TOKEN":
-      case "TOKEN_REVOKED":
-      case "TOKEN_USED":
-      case "TOKEN_EXPIRED":
-        status = 400;
+      case "DISCOVERY_SESSION_NOT_FOUND":
+      case "DEVICE_NOT_REGISTERED":
+        status = 404;
+        break;
+
+      case "DISCOVERY_SESSION_EXPIRED":
+        status = 410;
+        break;
+
+      case "DISCOVERY_SESSION_UNAVAILABLE":
+      case "DEVICE_UNAVAILABLE":
+      case "CLAIM_CONFLICT":
+        status = 409;
         break;
 
       case "HOUSE_NOT_AUTHORIZED":
@@ -330,15 +363,6 @@ export async function POST(request: NextRequest) {
         status = 423;
         break;
 
-      case "DEVICE_NOT_REGISTERED":
-        status = 404;
-        break;
-
-      case "DEVICE_UNAVAILABLE":
-      case "CLAIM_CONFLICT":
-        status = 409;
-        break;
-
       default:
         status = 400;
         break;
@@ -347,10 +371,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         ok: false,
+
         code,
+
         message:
           result.message ??
           "Unable to claim device.",
+
         ...(result.security_state
           ? {
               security_state:

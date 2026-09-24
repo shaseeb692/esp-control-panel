@@ -1,4 +1,4 @@
-# ESP Control Center — Master Brain & Roadmap
+﻿# ESP Control Center â€” Master Brain & Roadmap
 
 > This file is the permanent technical roadmap and architecture reference for
 
@@ -12,15 +12,15 @@
 
 > Roadmap Status:
 
-> - ✅ DONE
+> - âœ… DONE
 
-> - 🟡 PARTIAL / NEEDS TESTING
+> - ðŸŸ¡ PARTIAL / NEEDS TESTING
 
-> - 🔄 REDO / ARCHITECTURE CHANGED
+> - ðŸ”„ REDO / ARCHITECTURE CHANGED
 
-> - ⬜ TODO
+> - â¬œ TODO
 
-> - 🧪 HARDWARE TEST REQUIRED
+> - ðŸ§ª HARDWARE TEST REQUIRED
 
 ---
 
@@ -68,27 +68,27 @@ Core principles:
 
 User App / Browser
 
-→ Backend
+â†’ Backend
 
-→ Device Command
+â†’ Device Command
 
-→ ESP
+â†’ ESP
 
-→ Device Status
+â†’ Device Status
 
-→ Backend
+â†’ Backend
 
-→ Realtime UI
+â†’ Realtime UI
 
 ## Local LAN Mode
 
 User Browser
 
-→ Same Router / LAN
+â†’ Same Router / LAN
 
-→ ESP Local API
+â†’ ESP Local API
 
-→ Physical Device
+â†’ Physical Device
 
 No router:
 
@@ -106,49 +106,49 @@ If Wi-Fi credentials do not exist:
 
 ESP
 
-→ Setup AP Mode
+â†’ Setup AP Mode
 
-→ Unique SSID such as ESP-Setup-A7K29F
+â†’ Unique SSID such as ESP-Setup-A7K29F
 
-→ User connects
+â†’ User connects
 
-→ 192.168.4.1
+â†’ 192.168.4.1
 
-→ Select Home Wi-Fi
+â†’ Select Home Wi-Fi
 
-→ Save credentials
+â†’ Save credentials
 
-→ ESP connects to router
+â†’ ESP connects to router
 
-→ Device reaches cloud
+â†’ Device reaches cloud
 
-→ Device registers/authenticates
+â†’ Device registers/authenticates
 
-→ Temporary pairing/discovery session
+â†’ Temporary pairing/discovery session
 
-→ User opens Add Device
+â†’ User opens Add Device
 
-→ Available unclaimed device appears
+â†’ Available unclaimed device appears
 
-→ User selects device
+â†’ User selects device
 
-→ Select House
+â†’ Select House
 
-→ Select Room
+â†’ Select Room
 
-→ Claim Device
+â†’ Claim Device
 
-→ Done
+â†’ Done
 
 If Wi-Fi credentials already exist:
 
 ESP
 
-→ Attempt saved Wi-Fi
+â†’ Attempt saved Wi-Fi
 
-→ Connected
+â†’ Connected
 
-→ Normal Mode
+â†’ Normal Mode
 
 If router is unavailable:
 
@@ -164,7 +164,7 @@ Physical SETUP button can manually enter setup AP.
 
 Production uses TWO firmware stages.
 
-## Stage 1 — Birth Firmware
+## Stage 1 â€” Birth Firmware
 
 Factory flashes:
 
@@ -194,7 +194,7 @@ PH-7XXXXXX
 
 where XXXXXX is derived from ESP Chip ID.
 
-## Stage 2 — Final Product Firmware
+## Stage 2 â€” Final Product Firmware
 
 Factory flashes:
 
@@ -224,235 +224,235 @@ Production flashing MUST preserve the identity storage area.
 
 ---
 
-# 5. ROADMAP — 103 POINTS
+# 5. ROADMAP â€” 103 POINTS
 
 ## FOUNDATION
 
-1. ✅ Define smart-home platform concept.
+1. âœ… Define smart-home platform concept.
 
-2. ✅ Select Next.js frontend.
+2. âœ… Select Next.js frontend.
 
-3. ✅ Select Supabase backend/database.
+3. âœ… Select Supabase backend/database.
 
-4. ✅ Implement Supabase authentication.
+4. âœ… Implement Supabase authentication.
 
-5. ✅ Implement login flow.
+5. âœ… Implement login flow.
 
-6. ✅ Implement signup flow.
+6. âœ… Implement signup flow.
 
-7. ✅ Implement password reset flow.
+7. âœ… Implement password reset flow.
 
-8. ✅ Create authenticated dashboard.
+8. âœ… Create authenticated dashboard.
 
-9. ✅ Create House architecture.
+9. âœ… Create House architecture.
 
-10. ✅ Create Room architecture.
+10. âœ… Create Room architecture.
 
 ## DEVICE MODEL
 
-11. ✅ Create Devices architecture.
+11. âœ… Create Devices architecture.
 
-12. ✅ Create device capabilities architecture.
+12. âœ… Create device capabilities architecture.
 
-13. ✅ Define generic control IDs.
+13. âœ… Define generic control IDs.
 
-14. ✅ Support switch/toggle controls.
+14. âœ… Support switch/toggle controls.
 
-15. ✅ Support button controls.
+15. âœ… Support button controls.
 
-16. ✅ Support slider controls.
+16. âœ… Support slider controls.
 
-17. ✅ Support number controls.
+17. âœ… Support number controls.
 
-18. ✅ Remove requirement for hard-coded Motor1/Motor2 UI.
+18. âœ… Remove requirement for hard-coded Motor1/Motor2 UI.
 
-19. ✅ Device capabilities drive frontend controls.
+19. âœ… Device capabilities drive frontend controls.
 
-20. 🟡 Continue standardizing commercial device capability definitions.
+20. ðŸŸ¡ Continue standardizing commercial device capability definitions.
 
 ## UI / UX
 
-21. ✅ Create dynamic DeviceControlPanel.
+21. âœ… Create dynamic DeviceControlPanel.
 
-22. ✅ Create device status UI.
+22. âœ… Create device status UI.
 
-23. ✅ Create control command UI.
+23. âœ… Create control command UI.
 
-24. ✅ Create device settings architecture.
+24. âœ… Create device settings architecture.
 
-25. ✅ Create time-based MasterThemeProvider.
+25. âœ… Create time-based MasterThemeProvider.
 
-26. ✅ Create dashboard sky gradient system.
+26. âœ… Create dashboard sky gradient system.
 
-27. ✅ Create glass/glassSoft/muted theme system.
+27. âœ… Create glass/glassSoft/muted theme system.
 
-28. ✅ Apply theme to authentication pages.
+28. âœ… Apply theme to authentication pages.
 
-29. ✅ Create weather detail page architecture.
+29. âœ… Create weather detail page architecture.
 
-30. 🟡 Continue UI consistency across remaining pages.
+30. ðŸŸ¡ Continue UI consistency across remaining pages.
 
 ## COMMAND SYSTEM
 
-31. ✅ Create device_commands architecture.
+31. âœ… Create device_commands architecture.
 
-32. ✅ Create browser-authenticated /api/command.
+32. âœ… Create browser-authenticated /api/command.
 
-33. ✅ Validate user ownership before command creation.
+33. âœ… Validate user ownership before command creation.
 
-34. ✅ Store commands as pending.
+34. âœ… Store commands as pending.
 
-35. ✅ ESP command polling architecture tested.
+35. âœ… ESP command polling architecture tested.
 
-36. ✅ ESP status update architecture tested.
+36. âœ… ESP status update architecture tested.
 
-37. ✅ Supabase Realtime device status.
+37. âœ… Supabase Realtime device status.
 
-38. 🟡 Improve command acknowledgement/retry architecture.
+38. ðŸŸ¡ Improve command acknowledgement/retry architecture.
 
-39. 🟡 Improve device command failure reporting.
+39. ðŸŸ¡ Improve device command failure reporting.
 
-40. ⬜ Production command delivery optimization.
+40. â¬œ Production command delivery optimization.
 
 ## DEVICE STATUS / ONLINE SYSTEM
 
-41. ✅ Create device_status architecture.
+41. âœ… Create device_status architecture.
 
-42. ✅ Implement status JSON.
+42. âœ… Implement status JSON.
 
-43. ✅ Implement online status concept.
+43. âœ… Implement online status concept.
 
-44. ✅ Create /api/device/status.
+44. âœ… Create /api/device/status.
 
-45. ✅ Protect device status endpoint with device API authentication prototype.
+45. âœ… Protect device status endpoint with device API authentication prototype.
 
-46. 🔄 Replace prototype/global device API authentication with per-device identity authentication.
+46. ðŸ”„ Replace prototype/global device API authentication with per-device identity authentication.
 
-47. 🟡 Implement event-driven heartbeat architecture.
+47. ðŸŸ¡ Implement event-driven heartbeat architecture.
 
-48. 🟡 Implement exact stale timeout per device.
+48. ðŸŸ¡ Implement exact stale timeout per device.
 
-49. ⬜ Production offline/online transition handling.
+49. â¬œ Production offline/online transition handling.
 
-50. ⬜ Device health telemetry.
+50. â¬œ Device health telemetry.
 
 ## SCHEDULES
 
-51. ✅ Design schedules per control.
+51. âœ… Design schedules per control.
 
-52. ✅ Multiple schedules per control supported conceptually.
+52. âœ… Multiple schedules per control supported conceptually.
 
-53. ✅ Day-of-week repeat architecture.
+53. âœ… Day-of-week repeat architecture.
 
-54. ✅ Everyday = all seven days.
+54. âœ… Everyday = all seven days.
 
-55. ✅ Cross-midnight schedule semantics defined.
+55. âœ… Cross-midnight schedule semantics defined.
 
-56. 🟡 Supabase remains schedule source of truth.
+56. ðŸŸ¡ Supabase remains schedule source of truth.
 
-57. ⬜ ESP compact schedule synchronization.
+57. â¬œ ESP compact schedule synchronization.
 
-58. ⬜ ESP schedule RAM execution.
+58. â¬œ ESP schedule RAM execution.
 
-59. ⬜ Optional debounced flash schedule snapshot.
+59. â¬œ Optional debounced flash schedule snapshot.
 
-60. ⬜ Full schedule offline execution testing.
+60. â¬œ Full schedule offline execution testing.
 
 ## DEVICE OWNERSHIP & SECURITY
 
-61. ✅ Create device_registry.
+61. âœ… Create device_registry.
 
-62. ✅ Create device_claim_tokens.
+62. âœ… Create device_claim_tokens.
 
-63. ✅ Create device security foundation.
+63. âœ… Create device security foundation.
 
-64. ✅ Implement secret versioning.
+64. âœ… Implement secret versioning.
 
-65. ✅ Implement lifecycle_state.
+65. âœ… Implement lifecycle_state.
 
-66. ✅ Implement hardware_model.
+66. âœ… Implement hardware_model.
 
-67. ✅ Implement firmware_version.
+67. âœ… Implement firmware_version.
 
-68. ✅ Implement registry metadata.
+68. âœ… Implement registry metadata.
 
-69. ✅ Implement verify_device_secret RPC foundation.
+69. âœ… Implement verify_device_secret RPC foundation.
 
-70. ✅ Implement token revocation architecture.
+70. âœ… Implement token revocation architecture.
 
 ## ORIGINAL CLAIM SYSTEM
 
-71. ✅ Create claim page.
+71. âœ… Create claim page.
 
-72. ✅ Create ClaimDeviceClient.
+72. âœ… Create ClaimDeviceClient.
 
-73. ✅ Implement QR scanner.
+73. âœ… Implement QR scanner.
 
-74. ✅ Install html5-qrcode.
+74. âœ… Install html5-qrcode.
 
-75. ✅ Fix browser camera Permissions-Policy.
+75. âœ… Fix browser camera Permissions-Policy.
 
-76. ✅ Create /api/device/claim-session.
+76. âœ… Create /api/device/claim-session.
 
-77. ✅ Create /api/device/claim.
+77. âœ… Create /api/device/claim.
 
-78. ✅ Create transactional complete_device_claim RPC.
+78. âœ… Create transactional complete_device_claim RPC.
 
-79. 🔄 QR-primary claim flow deprecated.
+79. ðŸ”„ QR-primary claim flow deprecated.
 
-80. 🔄 Convert QR claim system into automatic discovery/pairing with QR retained only as fallback.
+80. ðŸ”„ Convert QR claim system into automatic discovery/pairing with QR retained only as fallback.
 
 ## TWO-STAGE FACTORY IDENTITY
 
-81. ✅ Build Birth Firmware source.
+81. âœ… Build Birth Firmware source.
 
-82. ✅ Generate factory DEVICE_ID from ESP Chip ID.
+82. âœ… Generate factory DEVICE_ID from ESP Chip ID.
 
-83. ✅ Generate random 256-bit DEVICE_SECRET.
+83. âœ… Generate random 256-bit DEVICE_SECRET.
 
-84. ✅ Generate factory identity integrity material.
+84. âœ… Generate factory identity integrity material.
 
-85. ✅ Store factory identity separately from Wi-Fi configuration.
+85. âœ… Store factory identity separately from Wi-Fi configuration.
 
-86. ✅ Add Birth Firmware identity test/recovery commands.
+86. âœ… Add Birth Firmware identity test/recovery commands.
 
-87. ✅ Birth Firmware compile successful.
+87. âœ… Birth Firmware compile successful.
 
-88. ✅ Build Stage-2 Final Firmware source.
+88. âœ… Build Stage-2 Final Firmware source.
 
-89. ✅ Stage-2 reads/verifies identity and does NOT generate it.
+89. âœ… Stage-2 reads/verifies identity and does NOT generate it.
 
-90. 🟡 Ensure production Stage-2 flashing method preserves EEPROM identity storage.
+90. ðŸŸ¡ Ensure production Stage-2 flashing method preserves EEPROM identity storage.
 
 ## HARDWARE VALIDATION
 
-91. 🧪 Flash Birth Firmware on real ESP and verify Stage-1 → Stage-2 identity persistence.
+91. ðŸ§ª Flash Birth Firmware on real ESP and verify Stage-1 â†’ Stage-2 identity persistence.
 
 Required test:
 
 Birth Firmware
 
-→ generate identity
+â†’ generate identity
 
-→ record DEVICE_ID
+â†’ record DEVICE_ID
 
-→ flash Stage-2 without full erase
+â†’ flash Stage-2 without full erase
 
-→ Stage-2 reads same DEVICE_ID
+â†’ Stage-2 reads same DEVICE_ID
 
-→ integrity valid
+â†’ integrity valid
 
-→ secret hidden
+â†’ secret hidden
 
-→ Wi-Fi reset
+â†’ Wi-Fi reset
 
-→ identity still survives
+â†’ identity still survives
 
 Also test Stage-2 ERASE_IDENTITY recovery behavior.
 
 ## CLOUD REGISTRATION
 
-92. ⬜ Build first-internet device registration endpoint.
+92. â¬œ Build first-internet device registration endpoint.
 
 ESP after Wi-Fi connection:
 
@@ -460,17 +460,17 @@ DEVICE_ID
 
 + device authentication proof
 
-→ backend
+â†’ backend
 
 Backend verifies device and creates/updates unclaimed registry presence.
 
-93. ⬜ Implement backend factory identity authentication.
+93. â¬œ Implement backend factory identity authentication.
 
 Must remove dependency on fleet-wide/global DEVICE_API_KEY.
 
 Use per-device authentication.
 
-94. ⬜ Automatically register authenticated device as UNCLAIMED.
+94. â¬œ Automatically register authenticated device as UNCLAIMED.
 
 No manual database entry.
 
@@ -478,15 +478,15 @@ No manual Device ID entry.
 
 ## AUTOMATIC PAIRING / DISCOVERY
 
-95. 🔄 Replace QR-primary pairing with temporary automatic pairing/discovery session.
+95. ðŸ”„ Replace QR-primary pairing with temporary automatic pairing/discovery session.
 
 Expected:
 
 ESP connects
 
-→ authenticates
+â†’ authenticates
 
-→ backend creates short-lived pairing presence/session.
+â†’ backend creates short-lived pairing presence/session.
 
 Pairing credential/session must be:
 
@@ -500,31 +500,31 @@ Pairing credential/session must be:
 
 Never use one global magic code.
 
-96. 🔄 Build Add Device automatic discovery UI.
+96. ðŸ”„ Build Add Device automatic discovery UI.
 
 Expected UX:
 
 Add Device
 
-→ Search for devices
+â†’ Search for devices
 
-→ available unclaimed device appears
+â†’ available unclaimed device appears
 
-→ select device
+â†’ select device
 
-→ select House
+â†’ select House
 
-→ select Room
+â†’ select Room
 
-→ Claim
+â†’ Claim
 
-→ Done
+â†’ Done
 
 QR remains optional fallback/recovery mechanism.
 
 ## FINAL CLAIM FLOW
 
-97. 🔄 Update claim architecture for discovery-based claim.
+97. ðŸ”„ Update claim architecture for discovery-based claim.
 
 Must reuse security protections from existing claim system:
 
@@ -544,7 +544,7 @@ Must reuse security protections from existing claim system:
 
 ## CLOUD + LOCAL OPERATION
 
-98. 🟡 Complete production cloud command/status/schedule architecture.
+98. ðŸŸ¡ Complete production cloud command/status/schedule architecture.
 
 Includes:
 
@@ -570,57 +570,57 @@ Also retain Local LAN control:
 
 Browser
 
-→ LAN
+â†’ LAN
 
-→ ESP
+â†’ ESP
 
-Need production solution for browser HTTPS → local device access restrictions,
+Need production solution for browser HTTPS â†’ local device access restrictions,
 
 CORS and Private Network Access.
 
 ## PRODUCTION VALIDATION
 
-99. ⬜ Full end-to-end production testing.
+99. â¬œ Full end-to-end production testing.
 
 Test:
 
 Factory Stage 1
 
-→ Stage 2
+â†’ Stage 2
 
-→ customer power-on
+â†’ customer power-on
 
-→ AP Wi-Fi setup
+â†’ AP Wi-Fi setup
 
-→ cloud registration
+â†’ cloud registration
 
-→ automatic discovery
+â†’ automatic discovery
 
-→ claim
+â†’ claim
 
-→ house/room
+â†’ house/room
 
-→ dynamic controls
+â†’ dynamic controls
 
-→ command
+â†’ command
 
-→ status
+â†’ status
 
-→ schedule
+â†’ schedule
 
-→ offline
+â†’ offline
 
-→ reconnect
+â†’ reconnect
 
-→ Wi-Fi reset
+â†’ Wi-Fi reset
 
-→ ownership retained
+â†’ ownership retained
 
-→ identity retained
+â†’ identity retained
 
-→ local LAN control.
+â†’ local LAN control.
 
-100. ⬜ ESP Control Center Production V1 release.
+100. â¬œ ESP Control Center Production V1 release.
 
 Requirements before V1:
 
@@ -648,7 +648,7 @@ Requirements before V1:
 
 # 6. VOICE ASSISTANT EXPANSION
 
-## 101. ⬜ Google Home / Google Assistant Integration
+## 101. â¬œ Google Home / Google Assistant Integration
 
 Goal:
 
@@ -672,17 +672,17 @@ Conceptual flow:
 
 Google Home / Assistant
 
-→ ESP Control Center Cloud
+â†’ ESP Control Center Cloud
 
-→ authenticated user/home
+â†’ authenticated user/home
 
-→ device mapping
+â†’ device mapping
 
-→ command system
+â†’ command system
 
-→ ESP
+â†’ ESP
 
-→ status synchronization
+â†’ status synchronization
 
 Requirements:
 
@@ -706,7 +706,7 @@ Do NOT hard-code Google logic directly into individual ESP devices.
 
 ---
 
-## 102. ⬜ Amazon Alexa Integration
+## 102. â¬œ Amazon Alexa Integration
 
 Goal:
 
@@ -724,17 +724,17 @@ Conceptual flow:
 
 Alexa
 
-→ ESP Control Center Cloud
+â†’ ESP Control Center Cloud
 
-→ authenticated account
+â†’ authenticated account
 
-→ device/capability mapping
+â†’ device/capability mapping
 
-→ command system
+â†’ command system
 
-→ ESP
+â†’ ESP
 
-→ state reporting
+â†’ state reporting
 
 Requirements:
 
@@ -838,7 +838,7 @@ Never:
 
 - Store plaintext device secrets in backend when hashing/verification can be
 
-  used appropriately.
+Â  used appropriately.
 
 Device ID = identifier.
 
@@ -868,7 +868,7 @@ Stage-2 consumes identity.
 
 Current development checkpoint:
 
-1–89:
+1â€“89:
 
 Foundation largely implemented.
 
@@ -880,7 +880,7 @@ Needs physical flash/persistence validation.
 
 Blocked until ESP hardware is available.
 
-92–97:
+92â€“97:
 
 Can continue WITHOUT ESP hardware.
 
@@ -904,7 +904,7 @@ Google Home / Google Assistant integration.
 
 Amazon Alexa integration.
 
-103. 🟡 PARTIAL / NEEDS HARDWARE TEST — MAP-V1 + HMAC-SHA256 Device Secret ID architecture implemented in Stage-1 Birth Firmware and Stage-2 Final Firmware. Stage-1 generates Identity V2, MAP-V1 encoded Chip ID, random 256-bit device secret, HMAC-SHA256 material and interleaved DEVICE_SECRET_ID. Stage-2 reads and validates Identity V2 without containing the factory HMAC generation key. Both firmwares compile successfully. Physical Stage-1 → Stage-2 EEPROM preservation and identity validation test remains pending on real ESP8266 hardware.
+103. ðŸŸ¡ PARTIAL / NEEDS HARDWARE TEST â€” MAP-V1 + HMAC-SHA256 Device Secret ID architecture implemented in Stage-1 Birth Firmware and Stage-2 Final Firmware. Stage-1 generates Identity V2, MAP-V1 encoded Chip ID, random 256-bit device secret, HMAC-SHA256 material and interleaved DEVICE_SECRET_ID. Stage-2 reads and validates Identity V2 without containing the factory HMAC generation key. Both firmwares compile successfully. Physical Stage-1 â†’ Stage-2 EEPROM preservation and identity validation test remains pending on real ESP8266 hardware.
 
 MAP-V1 mapping is now LOCKED.
 
@@ -928,9 +928,9 @@ architecture and replace QR-primary onboarding while preserving QR as fallback.
 
 **
 
-12. COMPANY DEVICE ID ENCODING — MAP-V1
+12. COMPANY DEVICE ID ENCODING â€” MAP-V1
 
-> LOCKED PRODUCTION MAPPING — MAP-V1
+> LOCKED PRODUCTION MAPPING â€” MAP-V1
 
 >
 
@@ -1030,17 +1030,17 @@ A92F31
 
 Encoding:
 
-A → 001acd
+A â†’ 001acd
 
-9 → a0g
+9 â†’ a0g
 
-2 → abk
+2 â†’ abk
 
-F → 021gb9
+F â†’ 021gb9
 
-3 → tyx
+3 â†’ tyx
 
-1 → mkg
+1 â†’ mkg
 
 Encoded Chip ID:
 
@@ -1086,92 +1086,112 @@ a3f89b12-001acd-c74d092e-a0g-61a8f54b-abk-3c90e1f7-021gb9-82d451a9-tyx-6328b0c4-
 
 - Production secrets/keys must never be committed to Git.
 
-13. GIT PUSH TRACKING**
+13. GIT PUSH TRACKING
 
 > IMPORTANT: This section MUST be updated before every Git push after development work.
 
 ## Last Git Push
 
-- **Date:** 22 September 2026
-
-- **Time:** [update at push time]
-
+- **Date:** 24 September 2026
 - **Location / Machine:** Office - SEO-PC
-
 - **Branch:** main
-
-- **Commit:** cb04370
-
-- **Commit Message:** Add two-stage ESP8266 factory identity firmware
-
-- **Changes:** Added Stage-1 Birth Firmware and updated Stage-2 Final Firmware for two-stage factory device identity architecture.
+- **Commit:** cb4d387
+- **Commit Message:** Add automatic device registration and discovery APIs
+- **Changes:** Added automatic device registration, verified factory provisioning, discovery-session infrastructure, and authenticated device discovery API.
 
 ## Mandatory Git Push Rule
 
 Whenever new development work is completed:
 
-1. Update relevant roadmap point(s) in `brain.md`.
-
-2. Mark completed work as `✅ DONE`.
-
-3. Mark partially completed work as `🟡 PARTIAL`.
-
-4. Mark architecture changes/rework as `🔄 REDO / UPDATED`.
-
-5. Add newly discovered tasks to the roadmap when required.
-
-6. Update the **Last Git Push** information above.
-
+1. Update relevant roadmap points in `brain.md`.
+2. Mark completed work as `DONE`.
+3. Mark partially completed work as `PARTIAL / NEEDS TESTING`.
+4. Mark architecture changes as `REDO / ARCHITECTURE CHANGED`.
+5. Add newly discovered tasks when required.
+6. Update the Last Git Push information.
 7. Stage source-code changes AND `brain.md`.
-
 8. Commit them together whenever practical.
-
 9. Push to GitHub.
 
 `brain.md` must remain synchronized with the actual project state.
 
 ---
 
-## Development Update � 22 Sep 2026
+## Development Update - 24 Sep 2026
 
-### Automatic Device Registration & Discovery
+### Discovery-Based Device Claim Architecture
 
-- ?  4_device_discovery_sessions � Supabase discovery session table, indexes, RLS and update trigger implemented.
-- ?  5_device_discovery_helpers � discovery expiry and active-session helper functions implemented.
-- ?  6_factory_device_registration � factory registration table implemented for automatic first-online device registration.
-- ?  7_auto_provision_verified_device � verified devices can automatically provision into device_registry.
-- ? pp/api/device/register/route.ts � Identity V2 / MAP-V1 / HMAC factory verification and automatic registration flow implemented.
-- ? Register API automatically provisions verified devices and creates temporary discovery sessions.
-- ? Factory/device secrets are hashed before database storage; raw device secret is not stored.
-- ? PHANTOM_FACTORY_HMAC_KEY configured as a Vercel Production Secret.
-- ?? Current Vercel factory key is for development/testing. Production key must be rotated before release.
-- ?? Birth Firmware factory HMAC key still needs to be synchronized with backend factory key before hardware registration testing.
-- ?? pp/api/device/discover/route.ts created for authenticated discovery of available unclaimed devices; final build/test pending.
-- ?? Physical ESP8266 Stage-1 ? Stage-2 identity preservation and first-online registration test remains pending.
+- DONE - `04_device_discovery_sessions`: discovery-session table, indexes, RLS and update trigger implemented.
+- DONE - `05_device_discovery_helpers`: discovery expiry and active-session helpers implemented.
+- DONE - `06_device_factory_registration`: factory registration foundation implemented.
+- DONE - `07_auto_provision_verified_device`: verified factory devices can automatically provision into `device_registry`.
+- DONE - `08_discovery_based_device_claim`: transactional discovery-session claim RPC implemented.
+- DONE - `09_remove_legacy_qr_claim_system`: legacy QR/token claim database architecture removed.
+- DONE - `/api/device/register`: Identity V2 / MAP-V1 / HMAC verification, automatic provisioning and discovery-session creation implemented.
+- DONE - `/api/device/discover`: authenticated discovery API implemented and production build passes.
+- DONE - `/api/device/claim`: migrated from raw claim-token architecture to `discovery_session_id`.
+- DONE - `ClaimDeviceClient.tsx`: QR scanner, camera, QR image upload and raw token flow replaced by automatic discovery UI.
+- DONE - `html5-qrcode` dependency removed.
+- DONE - legacy `/api/device/claim-session` route removed.
+- DONE - legacy claim-session proxy bypass removed.
+- DONE - legacy `device_claim_tokens` table removed.
+- DONE - legacy `complete_device_claim(...)` RPC removed.
+- DONE - legacy `revoke_device_claim_tokens(...)` RPC removed.
+- DONE - final Next.js production build passes after claim architecture migration.
 
-### Current Automatic Flow
+### Current Claim Flow
 
 Factory Birth Firmware
-? Identity V2 + MAP-V1 + DEVICE_SECRET_ID
-? Final Firmware
-? First Internet Connection
-? /api/device/register
-? Factory Identity Verification
-? device_factory_registrations
-? uto_provision_verified_device
-? device_registry
-? device_discovery_sessions
-? /api/device/discover
-? Add Device / Claim Flow
+-> Identity V2 + MAP-V1 + DEVICE_SECRET_ID
+-> Final Firmware
+-> First Internet Connection
+-> `/api/device/register`
+-> Factory Identity Verification
+-> `device_factory_registrations`
+-> `auto_provision_verified_device`
+-> `device_registry`
+-> `device_discovery_sessions`
+-> `/api/device/discover`
+-> User selects discovered device
+-> `/api/device/claim`
+-> `complete_device_discovery_claim`
+-> `device_ownership`
+-> Device attached to selected room
 
-### Last Git Push Tracking
+### Remaining Work / Security
+
+- PARTIAL / NEEDS HARDWARE TEST - Physical ESP8266 Stage-1 -> Stage-2 EEPROM identity preservation.
+- PARTIAL / NEEDS HARDWARE TEST - First-online registration against the production-style backend.
+- PARTIAL - Birth Firmware factory HMAC key and backend factory key need secure build-time synchronization before hardware registration testing.
+- SECURITY TODO - Current `/api/device/discover` discovery scope must be hardened before Production V1 so an authenticated account cannot enumerate unrelated globally available devices.
+- SECURITY TODO - Production factory HMAC key must be rotated before release.
+- TODO - Complete discovery/pairing UX testing with real hardware.
+- TODO - Production V1 end-to-end validation.
+
+### Roadmap Status Update
+
+- Point 92 - PARTIAL / NEEDS HARDWARE TEST: first-internet registration backend implemented.
+- Point 93 - PARTIAL / NEEDS HARDWARE TEST: backend factory identity authentication implemented.
+- Point 94 - DONE: automatic registration/provisioning foundation implemented.
+- Point 95 - DONE: temporary discovery-session foundation implemented.
+- Point 96 - DONE: app automatic discovery UI implemented.
+- Point 97 - DONE: discovery-based device claim implemented.
+- Point 98 - PARTIAL: cloud/status/schedule production hardening remains.
+- Point 99 - TODO: full end-to-end testing.
+- Point 100 - TODO: Production V1.
+- Point 101 - TODO: Google integration.
+- Point 102 - TODO: Alexa integration.
+- Point 103 - PARTIAL / NEEDS HARDWARE TEST: MAP-V1 + HMAC Identity V2 implemented; physical validation remains.
+
+### Git Tracking
 
 Previous successful push:
-- Branch: main
-- Commit: 08eeb6
-- Message: Implement MAP-V1 device identity architecture
+
+- Branch: `main`
+- Commit: `cb4d387`
+- Message: `Add automatic device registration and discovery APIs`
 
 Next push:
-- Automatic registration/discovery backend implementation.
-- Exact commit hash will be recorded in the next development update.
 
+- Discovery-based claim migration and complete legacy QR/token architecture removal.
+- Exact new commit hash will be recorded in the following development update.
