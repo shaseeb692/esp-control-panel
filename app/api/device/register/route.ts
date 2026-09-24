@@ -13,10 +13,12 @@ const supabase = createClient(
       persistSession: false,
       autoRefreshToken: false,
     },
-  }
+  },
 );
 
-const FACTORY_HMAC_KEY = process.env.PHANTOM_FACTORY_HMAC_KEY;
+const FACTORY_HMAC_KEY =
+  process.env.PHANTOM_FACTORY_HMAC_KEY;
+
 const MAP_VERSION = "MAP-V1";
 
 const MAP_V1: Record<string, string> = {
@@ -66,46 +68,69 @@ function sha256(value: string) {
     .digest("hex");
 }
 
-function hmacSha256(value: string) {
-  if (!FACTORY_HMAC_KEY) {
-    throw new Error("FACTORY_HMAC_KEY_NOT_CONFIGURED");
+function hmacSha256(
+  value: string,
+  key?: string,
+) {
+  const hmacKey =
+    key ?? FACTORY_HMAC_KEY;
+
+  if (!hmacKey) {
+    throw new Error(
+      "FACTORY_HMAC_KEY_NOT_CONFIGURED",
+    );
   }
 
   return crypto
-    .createHmac("sha256", FACTORY_HMAC_KEY)
+    .createHmac("sha256", hmacKey)
     .update(value)
     .digest("hex");
 }
 
-function safeEqual(a: string, b: string) {
+function safeEqual(
+  a: string,
+  b: string,
+) {
   const aBuffer = Buffer.from(a);
   const bBuffer = Buffer.from(b);
 
-  if (aBuffer.length !== bBuffer.length) {
+  if (
+    aBuffer.length !== bBuffer.length
+  ) {
     return false;
   }
 
-  return crypto.timingSafeEqual(aBuffer, bBuffer);
+  return crypto.timingSafeEqual(
+    aBuffer,
+    bBuffer,
+  );
 }
 
 function buildDeviceSecretId(
   hmac: string,
-  chipId: string
+  chipId: string,
 ) {
   const parts: string[] = [];
 
   for (let i = 0; i < 8; i++) {
     parts.push(
-      hmac.substring(i * 8, i * 8 + 8)
+      hmac.substring(
+        i * 8,
+        i * 8 + 8,
+      ),
     );
 
     if (i < 6) {
-      const character = chipId[i];
+      const character =
+        chipId[i];
 
-      const mapped = MAP_V1[character];
+      const mapped =
+        MAP_V1[character];
 
       if (!mapped) {
-        throw new Error("INVALID_MAP_CHARACTER");
+        throw new Error(
+          "INVALID_MAP_CHARACTER",
+        );
       }
 
       parts.push(mapped);
@@ -115,49 +140,52 @@ function buildDeviceSecretId(
   return parts.join("-");
 }
 
-export async function POST(request: NextRequest) {
+function jsonError(
+  error: string,
+  status: number,
+) {
+  return NextResponse.json(
+    {
+      ok: false,
+      error,
+    },
+    {
+      status,
+    },
+  );
+}
+
+export async function POST(
+  request: NextRequest,
+) {
   try {
-    /*
-    |--------------------------------------------------------------------------
-    | SERVER CONFIG
-    |--------------------------------------------------------------------------
-    */
+    /* ================================================
+       SERVER CONFIG
+    ================================================= */
 
     if (!FACTORY_HMAC_KEY) {
       console.error(
-        "PHANTOM_FACTORY_HMAC_KEY is not configured"
+        "PHANTOM_FACTORY_HMAC_KEY is not configured",
       );
 
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "SERVER_CONFIGURATION_ERROR",
-        },
-        {
-          status: 500,
-        }
+      return jsonError(
+        "SERVER_CONFIGURATION_ERROR",
+        500,
       );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | READ DEVICE PAYLOAD
-    |--------------------------------------------------------------------------
-    */
+    /* ================================================
+       READ PAYLOAD
+    ================================================= */
 
     const body = await request
       .json()
       .catch(() => null);
 
     if (!body) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "INVALID_JSON",
-        },
-        {
-          status: 400,
-        }
+      return jsonError(
+        "INVALID_JSON",
+        400,
       );
     }
 
@@ -168,17 +196,23 @@ export async function POST(request: NextRequest) {
 
     const chipId =
       typeof body.chip_id === "string"
-        ? body.chip_id.trim().toUpperCase()
+        ? body.chip_id
+            .trim()
+            .toUpperCase()
         : "";
 
     const deviceSecret =
       typeof body.device_secret === "string"
-        ? body.device_secret.trim().toLowerCase()
+        ? body.device_secret
+            .trim()
+            .toLowerCase()
         : "";
 
     const deviceSecretId =
       typeof body.device_secret_id === "string"
-        ? body.device_secret_id.trim().toLowerCase()
+        ? body.device_secret_id
+            .trim()
+            .toLowerCase()
         : "";
 
     const mapVersion =
@@ -197,10 +231,29 @@ export async function POST(request: NextRequest) {
         : null;
 
     /*
-    |--------------------------------------------------------------------------
-    | BASIC VALIDATION
-    |--------------------------------------------------------------------------
+      Anti-replay fields.
     */
+
+    const challengeId =
+      typeof body.challenge_id === "string"
+        ? body.challenge_id.trim()
+        : "";
+
+    const challenge =
+      typeof body.challenge === "string"
+        ? body.challenge.trim()
+        : "";
+
+    const challengeProof =
+      typeof body.challenge_proof === "string"
+        ? body.challenge_proof
+            .trim()
+            .toLowerCase()
+        : "";
+
+    /* ================================================
+       BASIC VALIDATION
+    ================================================= */
 
     if (
       !deviceId ||
@@ -209,84 +262,85 @@ export async function POST(request: NextRequest) {
       !deviceSecretId ||
       !mapVersion
     ) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "MISSING_IDENTITY_FIELDS",
-        },
-        {
-          status: 400,
-        }
+      return jsonError(
+        "MISSING_IDENTITY_FIELDS",
+        400,
       );
     }
 
-    if (!/^[0-9A-F]{6}$/.test(chipId)) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "INVALID_CHIP_ID",
-        },
-        {
-          status: 400,
-        }
+    if (
+      !challengeId ||
+      !challenge ||
+      !challengeProof
+    ) {
+      return jsonError(
+        "MISSING_REGISTRATION_CHALLENGE",
+        400,
       );
     }
 
-    if (!/^[a-f0-9]{64}$/.test(deviceSecret)) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "INVALID_DEVICE_SECRET",
-        },
-        {
-          status: 400,
-        }
+    if (
+      !/^[0-9A-F]{6}$/.test(
+        chipId,
+      )
+    ) {
+      return jsonError(
+        "INVALID_CHIP_ID",
+        400,
       );
     }
 
-    if (mapVersion !== MAP_VERSION) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "UNSUPPORTED_MAP_VERSION",
-        },
-        {
-          status: 400,
-        }
+    if (
+      !/^[a-f0-9]{64}$/.test(
+        deviceSecret,
+      )
+    ) {
+      return jsonError(
+        "INVALID_DEVICE_SECRET",
+        400,
       );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | DEVICE ID ↔ CHIP ID BINDING
-    |--------------------------------------------------------------------------
-    */
+    if (
+      !/^[a-f0-9]{64}$/.test(
+        challengeProof,
+      )
+    ) {
+      return jsonError(
+        "INVALID_CHALLENGE_PROOF",
+        400,
+      );
+    }
+
+    if (
+      mapVersion !== MAP_VERSION
+    ) {
+      return jsonError(
+        "UNSUPPORTED_MAP_VERSION",
+        400,
+      );
+    }
+
+    /* ================================================
+       DEVICE ID <-> CHIP
+    ================================================= */
 
     const expectedDeviceId =
       `PH-7${chipId}`;
 
-    if (deviceId !== expectedDeviceId) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "DEVICE_ID_MISMATCH",
-        },
-        {
-          status: 401,
-        }
+    if (
+      deviceId !==
+      expectedDeviceId
+    ) {
+      return jsonError(
+        "DEVICE_ID_MISMATCH",
+        401,
       );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | FACTORY HMAC VERIFICATION
-    |--------------------------------------------------------------------------
-    |
-    | Same canonical string as Birth Firmware:
-    |
-    | PHANTOM|V1|DEVICE_ID|CHIP_ID|DEVICE_SECRET
-    |
-    */
+    /* ================================================
+       FACTORY IDENTITY VERIFICATION
+    ================================================= */
 
     const canonical =
       `PHANTOM|V1|${deviceId}|${chipId}|${deviceSecret}`;
@@ -297,35 +351,233 @@ export async function POST(request: NextRequest) {
     const expectedDeviceSecretId =
       buildDeviceSecretId(
         expectedHmac,
-        chipId
+        chipId,
       ).toLowerCase();
 
     if (
       !safeEqual(
         expectedDeviceSecretId,
-        deviceSecretId
+        deviceSecretId,
       )
     ) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "FACTORY_IDENTITY_VERIFICATION_FAILED",
-        },
-        {
-          status: 401,
-        }
+      return jsonError(
+        "FACTORY_IDENTITY_VERIFICATION_FAILED",
+        401,
+      );
+    }
+
+    /* ================================================
+       REGISTRATION CHALLENGE LOOKUP
+    ================================================= */
+
+    const {
+      data: challengeRow,
+      error: challengeReadError,
+    } = await supabase
+      .from(
+        "device_registration_challenges",
+      )
+      .select(
+        `
+        id,
+        device_id,
+        challenge_hash,
+        status,
+        expires_at,
+        used_at
+        `,
+      )
+      .eq(
+        "id",
+        challengeId,
+      )
+      .maybeSingle();
+
+    if (challengeReadError) {
+      console.error(
+        "Challenge lookup:",
+        challengeReadError,
+      );
+
+      return jsonError(
+        "CHALLENGE_LOOKUP_FAILED",
+        500,
+      );
+    }
+
+    if (!challengeRow) {
+      return jsonError(
+        "CHALLENGE_NOT_FOUND",
+        401,
+      );
+    }
+
+    if (
+      challengeRow.device_id !==
+      deviceId
+    ) {
+      return jsonError(
+        "CHALLENGE_DEVICE_MISMATCH",
+        401,
       );
     }
 
     /*
-    |--------------------------------------------------------------------------
-    | HASH SECRETS
-    |--------------------------------------------------------------------------
-    |
-    | Raw DEVICE_SECRET is never stored.
-    |
+      Critical replay protection.
+
+      Once USED, EXPIRED or REVOKED,
+      this request cannot authenticate again.
     */
+
+    if (
+      challengeRow.status !==
+      "available"
+    ) {
+      return jsonError(
+        "CHALLENGE_ALREADY_USED",
+        409,
+      );
+    }
+
+    if (
+      new Date(
+        challengeRow.expires_at,
+      ).getTime() <= Date.now()
+    ) {
+      await supabase
+        .from(
+          "device_registration_challenges",
+        )
+        .update({
+          status: "expired",
+        })
+        .eq(
+          "id",
+          challengeId,
+        )
+        .eq(
+          "status",
+          "available",
+        );
+
+      return jsonError(
+        "CHALLENGE_EXPIRED",
+        401,
+      );
+    }
+
+    /* ================================================
+       VERIFY RAW CHALLENGE
+    ================================================= */
+
+    const receivedChallengeHash =
+      sha256(challenge);
+
+    if (
+      !safeEqual(
+        receivedChallengeHash,
+        challengeRow.challenge_hash,
+      )
+    ) {
+      return jsonError(
+        "INVALID_CHALLENGE",
+        401,
+      );
+    }
+
+    /* ================================================
+       VERIFY DEVICE CHALLENGE PROOF
+
+       ESP computes:
+
+       HMAC-SHA256(
+         DEVICE_SECRET,
+         PHANTOM|REGISTER|V1|
+         DEVICE_ID|
+         CHALLENGE_ID|
+         CHALLENGE
+       )
+    ================================================= */
+
+    const challengeCanonical =
+      `PHANTOM|REGISTER|V1|${deviceId}|${challengeId}|${challenge}`;
+
+    const expectedChallengeProof =
+      hmacSha256(
+        challengeCanonical,
+        deviceSecret,
+      );
+
+    if (
+      !safeEqual(
+        expectedChallengeProof,
+        challengeProof,
+      )
+    ) {
+      return jsonError(
+        "CHALLENGE_PROOF_FAILED",
+        401,
+      );
+    }
+
+    /* ================================================
+       ATOMIC-STYLE CHALLENGE CONSUMPTION
+
+       Update only succeeds while status=available.
+
+       If another identical request consumed it first,
+       this update returns no row.
+    ================================================= */
+
+    const {
+      data: consumedChallenge,
+      error: consumeError,
+    } = await supabase
+      .from(
+        "device_registration_challenges",
+      )
+      .update({
+        status: "used",
+        used_at:
+          new Date().toISOString(),
+      })
+      .eq(
+        "id",
+        challengeId,
+      )
+      .eq(
+        "device_id",
+        deviceId,
+      )
+      .eq(
+        "status",
+        "available",
+      )
+      .select("id")
+      .maybeSingle();
+
+    if (consumeError) {
+      console.error(
+        "Challenge consume:",
+        consumeError,
+      );
+
+      return jsonError(
+        "CHALLENGE_CONSUME_FAILED",
+        500,
+      );
+    }
+
+    if (!consumedChallenge) {
+      return jsonError(
+        "CHALLENGE_REPLAY_DETECTED",
+        409,
+      );
+    }
+
+    /* ================================================
+       HASH PERMANENT SECRETS
+    ================================================= */
 
     const deviceSecretHash =
       sha256(deviceSecret);
@@ -333,180 +585,158 @@ export async function POST(request: NextRequest) {
     const deviceSecretIdHash =
       sha256(deviceSecretId);
 
-    /*
-    |--------------------------------------------------------------------------
-    | CHECK EXISTING FACTORY RECORD
-    |--------------------------------------------------------------------------
-    */
+    /* ================================================
+       FACTORY REGISTRATION LOOKUP
+    ================================================= */
 
     const {
       data: existingFactory,
       error: factoryReadError,
     } = await supabase
-      .from("device_factory_registrations")
+      .from(
+        "device_factory_registrations",
+      )
       .select(
         `
         device_id,
         chip_id,
         device_secret_id_hash,
         verified
-        `
+        `,
       )
-      .eq("device_id", deviceId)
+      .eq(
+        "device_id",
+        deviceId,
+      )
       .maybeSingle();
 
     if (factoryReadError) {
       console.error(
         "Factory lookup:",
-        factoryReadError
+        factoryReadError,
       );
 
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "FACTORY_LOOKUP_FAILED",
-        },
-        {
-          status: 500,
-        }
+      return jsonError(
+        "FACTORY_LOOKUP_FAILED",
+        500,
       );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | PREVENT IDENTITY REPLACEMENT
-    |--------------------------------------------------------------------------
-    */
+    /* ================================================
+       EXISTING FACTORY IDENTITY
+    ================================================= */
 
     if (existingFactory) {
       if (
-        existingFactory.chip_id !== chipId ||
+        existingFactory.chip_id !==
+          chipId ||
         !safeEqual(
-          existingFactory.device_secret_id_hash,
-          deviceSecretIdHash
+          existingFactory
+            .device_secret_id_hash,
+          deviceSecretIdHash,
         )
       ) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error:
-              "FACTORY_IDENTITY_CONFLICT",
-          },
-          {
-            status: 409,
-          }
+        return jsonError(
+          "FACTORY_IDENTITY_CONFLICT",
+          409,
         );
       }
 
-      /*
-      |--------------------------------------------------------------------------
-      | UPDATE LAST SEEN
-      |--------------------------------------------------------------------------
-      */
+      const {
+        error: updateFactoryError,
+      } = await supabase
+        .from(
+          "device_factory_registrations",
+        )
+        .update({
+          verified: true,
 
-      const { error: updateFactoryError } =
-        await supabase
-          .from(
-            "device_factory_registrations"
-          )
-          .update({
-            verified: true,
-            verified_at: new Date().toISOString(),
-            last_seen_at:
-              new Date().toISOString(),
-          })
-          .eq("device_id", deviceId);
+          verified_at:
+            new Date().toISOString(),
+
+          last_seen_at:
+            new Date().toISOString(),
+        })
+        .eq(
+          "device_id",
+          deviceId,
+        );
 
       if (updateFactoryError) {
         console.error(
           "Factory update:",
-          updateFactoryError
+          updateFactoryError,
         );
 
-        return NextResponse.json(
-          {
-            ok: false,
-            error:
-              "FACTORY_UPDATE_FAILED",
-          },
-          {
-            status: 500,
-          }
+        return jsonError(
+          "FACTORY_UPDATE_FAILED",
+          500,
         );
       }
     } else {
-      /*
-      |--------------------------------------------------------------------------
-      | FIRST EVER INTERNET REGISTRATION
-      |--------------------------------------------------------------------------
-      |
-      | AUTOMATIC.
-      | No manual device DB row.
-      |
-      */
+      /* ==============================================
+         FIRST INTERNET REGISTRATION
+      =============================================== */
 
-      const { error: factoryInsertError } =
-        await supabase
-          .from(
-            "device_factory_registrations"
-          )
-          .insert({
-            device_id: deviceId,
-            chip_id: chipId,
+      const {
+        error: factoryInsertError,
+      } = await supabase
+        .from(
+          "device_factory_registrations",
+        )
+        .insert({
+          device_id:
+            deviceId,
 
-            map_version: MAP_VERSION,
+          chip_id:
+            chipId,
 
-            device_secret_id_hash:
-              deviceSecretIdHash,
+          map_version:
+            MAP_VERSION,
 
-            verified: true,
+          device_secret_id_hash:
+            deviceSecretIdHash,
 
-            verified_at:
-              new Date().toISOString(),
+          verified:
+            true,
 
-            first_seen_at:
-              new Date().toISOString(),
+          verified_at:
+            new Date().toISOString(),
 
-            last_seen_at:
-              new Date().toISOString(),
-          });
+          first_seen_at:
+            new Date().toISOString(),
+
+          last_seen_at:
+            new Date().toISOString(),
+        });
 
       if (factoryInsertError) {
         console.error(
           "Factory insert:",
-          factoryInsertError
+          factoryInsertError,
         );
 
-        return NextResponse.json(
-          {
-            ok: false,
-            error:
-              "FACTORY_REGISTRATION_FAILED",
-          },
-          {
-            status: 500,
-          }
+        return jsonError(
+          "FACTORY_REGISTRATION_FAILED",
+          500,
         );
       }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | AUTO PROVISION INTO DEVICE REGISTRY
-    |--------------------------------------------------------------------------
-    |
-    | Calls SQL function from migration 07.
-    |
-    */
+    /* ================================================
+       AUTO PROVISION DEVICE
+    ================================================= */
 
     const {
       error: provisionError,
     } = await supabase.rpc(
       "auto_provision_verified_device",
       {
-        p_device_id: deviceId,
+        p_device_id:
+          deviceId,
 
-        p_chip_id: chipId,
+        p_chip_id:
+          chipId,
 
         p_device_secret_hash:
           deviceSecretHash,
@@ -519,32 +749,24 @@ export async function POST(request: NextRequest) {
 
         p_firmware_version:
           firmwareVersion,
-      }
+      },
     );
 
     if (provisionError) {
       console.error(
         "Auto provision:",
-        provisionError
+        provisionError,
       );
 
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "AUTO_PROVISION_FAILED",
-        },
-        {
-          status: 500,
-        }
+      return jsonError(
+        "AUTO_PROVISION_FAILED",
+        500,
       );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | CHECK OWNERSHIP
-    |--------------------------------------------------------------------------
-    */
+    /* ================================================
+       CHECK OWNERSHIP
+    ================================================= */
 
     const {
       data: ownership,
@@ -552,176 +774,174 @@ export async function POST(request: NextRequest) {
     } = await supabase
       .from("device_ownership")
       .select(
-        "owner_user_id,status"
+        "owner_user_id,status",
       )
-      .eq("device_id", deviceId)
-      .eq("status", "active")
+      .eq(
+        "device_id",
+        deviceId,
+      )
+      .eq(
+        "status",
+        "active",
+      )
       .maybeSingle();
 
     if (ownershipError) {
       console.error(
         "Ownership:",
-        ownershipError
+        ownershipError,
       );
 
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "OWNERSHIP_LOOKUP_FAILED",
-        },
-        {
-          status: 500,
-        }
+      return jsonError(
+        "OWNERSHIP_LOOKUP_FAILED",
+        500,
       );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | DEVICE ALREADY CLAIMED
-    |--------------------------------------------------------------------------
-    */
+    /* ================================================
+       ALREADY CLAIMED
+    ================================================= */
 
     if (ownership) {
       return NextResponse.json({
         ok: true,
 
-        device_id: deviceId,
+        device_id:
+          deviceId,
 
-        factory_verified: true,
+        factory_verified:
+          true,
 
-        registered: true,
+        registered:
+          true,
 
-        claimed: true,
+        claimed:
+          true,
 
-        discovery_available: false,
+        discovery_available:
+          false,
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | EXPIRE OLD DISCOVERY SESSIONS
-    |--------------------------------------------------------------------------
-    */
+    /* ================================================
+       DISCOVERY CLEANUP
+    ================================================= */
 
     const now =
       new Date().toISOString();
 
-    const { error: expireError } =
-      await supabase
-        .from(
-          "device_discovery_sessions"
-        )
-        .update({
-          status: "expired",
-        })
-        .eq("device_id", deviceId)
-        .eq("status", "available")
-        .lte("expires_at", now);
+    const {
+      error: expireError,
+    } = await supabase
+      .from(
+        "device_discovery_sessions",
+      )
+      .update({
+        status: "expired",
+      })
+      .eq(
+        "device_id",
+        deviceId,
+      )
+      .eq(
+        "status",
+        "available",
+      )
+      .lte(
+        "expires_at",
+        now,
+      );
 
     if (expireError) {
       console.error(
         "Discovery cleanup:",
-        expireError
+        expireError,
       );
 
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "DISCOVERY_CLEANUP_FAILED",
-        },
-        {
-          status: 500,
-        }
+      return jsonError(
+        "DISCOVERY_CLEANUP_FAILED",
+        500,
       );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | CHECK ACTIVE DISCOVERY SESSION
-    |--------------------------------------------------------------------------
-    */
+    /* ================================================
+       ACTIVE DISCOVERY
+    ================================================= */
 
     const {
       data: activeSession,
       error: activeSessionError,
     } = await supabase
       .from(
-        "device_discovery_sessions"
+        "device_discovery_sessions",
       )
-      .select("id,expires_at")
-      .eq("device_id", deviceId)
-      .eq("status", "available")
-      .gt("expires_at", now)
+      .select(
+        "id,expires_at",
+      )
+      .eq(
+        "device_id",
+        deviceId,
+      )
+      .eq(
+        "status",
+        "available",
+      )
+      .gt(
+        "expires_at",
+        now,
+      )
       .maybeSingle();
 
     if (activeSessionError) {
       console.error(
         "Discovery lookup:",
-        activeSessionError
+        activeSessionError,
       );
 
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "DISCOVERY_LOOKUP_FAILED",
-        },
-        {
-          status: 500,
-        }
+      return jsonError(
+        "DISCOVERY_LOOKUP_FAILED",
+        500,
       );
     }
 
     /*
-    |--------------------------------------------------------------------------
-    | EXISTING SESSION
-    |--------------------------------------------------------------------------
-    |
-    | We don't know its original raw pairing code because only
-    | its hash is stored.
-    |
-    | Revoke it and generate a fresh code for this authenticated
-    | device registration.
-    |
+      We cannot recover the original raw pairing
+      code because only its hash is stored.
+
+      Therefore create a fresh pairing session.
     */
 
     if (activeSession) {
-      const { error: revokeError } =
-        await supabase
-          .from(
-            "device_discovery_sessions"
-          )
-          .update({
-            status: "revoked",
-          })
-          .eq("id", activeSession.id);
+      const {
+        error: revokeError,
+      } = await supabase
+        .from(
+          "device_discovery_sessions",
+        )
+        .update({
+          status: "revoked",
+        })
+        .eq(
+          "id",
+          activeSession.id,
+        );
 
       if (revokeError) {
         console.error(
           "Discovery revoke:",
-          revokeError
+          revokeError,
         );
 
-        return NextResponse.json(
-          {
-            ok: false,
-            error:
-              "DISCOVERY_REVOKE_FAILED",
-          },
-          {
-            status: 500,
-          }
+        return jsonError(
+          "DISCOVERY_REVOKE_FAILED",
+          500,
         );
       }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | CREATE TEMPORARY DISCOVERY CODE
-    |--------------------------------------------------------------------------
-    */
+    /* ================================================
+       CREATE TEMPORARY PAIRING PROOF
+    ================================================= */
 
     const pairingCode =
       crypto
@@ -734,7 +954,7 @@ export async function POST(request: NextRequest) {
     const expiresAt =
       new Date(
         Date.now() +
-          10 * 60 * 1000
+          10 * 60 * 1000,
       ).toISOString();
 
     const {
@@ -742,59 +962,62 @@ export async function POST(request: NextRequest) {
       error: discoveryError,
     } = await supabase
       .from(
-        "device_discovery_sessions"
+        "device_discovery_sessions",
       )
       .insert({
-        device_id: deviceId,
+        device_id:
+          deviceId,
 
         pairing_code_hash:
           pairingCodeHash,
 
-        status: "available",
+        status:
+          "available",
 
-        expires_at: expiresAt,
+        expires_at:
+          expiresAt,
       })
       .select(
-        "id,expires_at"
+        "id,expires_at",
       )
       .single();
 
-    if (discoveryError) {
+    if (
+      discoveryError ||
+      !discoverySession
+    ) {
       console.error(
         "Discovery create:",
-        discoveryError
+        discoveryError,
       );
 
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "DISCOVERY_SESSION_CREATE_FAILED",
-        },
-        {
-          status: 500,
-        }
+      return jsonError(
+        "DISCOVERY_SESSION_CREATE_FAILED",
+        500,
       );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | RESPONSE TO ESP
-    |--------------------------------------------------------------------------
-    */
+    /* ================================================
+       RESPONSE TO ESP
+    ================================================= */
 
     return NextResponse.json({
       ok: true,
 
-      device_id: deviceId,
+      device_id:
+        deviceId,
 
-      factory_verified: true,
+      factory_verified:
+        true,
 
-      registered: true,
+      registered:
+        true,
 
-      claimed: false,
+      claimed:
+        false,
 
-      discovery_available: true,
+      discovery_available:
+        true,
 
       discovery_session_id:
         discoverySession.id,
@@ -808,18 +1031,12 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error(
       "DEVICE REGISTER ERROR:",
-      error
+      error,
     );
 
-    return NextResponse.json(
-      {
-        ok: false,
-        error:
-          "INTERNAL_SERVER_ERROR",
-      },
-      {
-        status: 500,
-      }
+    return jsonError(
+      "INTERNAL_SERVER_ERROR",
+      500,
     );
   }
 }

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
   useCallback,
@@ -42,6 +42,16 @@ type DiscoveryResponse = {
   ok?: boolean;
   devices?: DiscoveryDevice[];
   error?: string;
+};
+
+type BindDiscoveryResponse = {
+  ok?: boolean;
+  code?: string;
+  message?: string;
+  error?: string;
+  discovery_session_id?: string;
+  device_id?: string;
+  expires_at?: string;
 };
 
 type ClaimResponse = {
@@ -165,6 +175,9 @@ export default function ClaimDevicePage() {
 
   const mountedRef =
     useRef(true);
+
+  const pairingHandledRef =
+    useRef(false);
 
   /* =====================================================
      CLEANUP
@@ -677,7 +690,7 @@ export default function ClaimDevicePage() {
                                 "Smart Device"}
 
                               {device.firmware_version
-                                ? ` • Firmware ${device.firmware_version}`
+                                ? ` â€¢ Firmware ${device.firmware_version}`
                                 : ""}
                             </p>
                           </div>

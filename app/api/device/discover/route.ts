@@ -6,77 +6,116 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl =
+      process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+    const serviceRoleKey =
+      process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!supabaseUrl || !serviceRoleKey) {
       return NextResponse.json(
-        { ok: false, error: "SERVER_CONFIGURATION_ERROR" },
-        { status: 500 }
+        {
+          ok: false,
+          error: "SERVER_CONFIGURATION_ERROR",
+        },
+        { status: 500 },
       );
     }
 
-    /*
-     * Browser must be logged in.
-     * We verify the user's Supabase access token before returning
-     * any discovery information.
-     */
-    const authHeader = request.headers.get("authorization");
+    /* =====================================================
+       AUTHENTICATE USER
+    ===================================================== */
+
+    const authHeader =
+      request.headers.get("authorization");
 
     if (!authHeader?.startsWith("Bearer ")) {
       return NextResponse.json(
-        { ok: false, error: "UNAUTHORIZED" },
-        { status: 401 }
+        {
+          ok: false,
+          error: "UNAUTHORIZED",
+        },
+        { status: 401 },
       );
     }
 
-    const accessToken = authHeader.slice(7).trim();
+    const accessToken =
+      authHeader.slice(7).trim();
 
-    const supabase = createClient(supabaseUrl, serviceRoleKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
+    const supabase = createClient(
+      supabaseUrl,
+      serviceRoleKey,
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
       },
-    });
+    );
 
     const {
       data: { user },
       error: userError,
-    } = await supabase.auth.getUser(accessToken);
+    } = await supabase.auth.getUser(
+      accessToken,
+    );
 
     if (userError || !user) {
       return NextResponse.json(
-        { ok: false, error: "UNAUTHORIZED" },
-        { status: 401 }
+        {
+          ok: false,
+          error: "UNAUTHORIZED",
+        },
+        { status: 401 },
       );
     }
 
-    const now = new Date().toISOString();
+    const now =
+      new Date().toISOString();
 
-    /*
-     * Expire stale sessions first.
-     */
-    const { error: expireError } = await supabase
-      .from("device_discovery_sessions")
-      .update({
-        status: "expired",
-      })
-      .eq("status", "available")
-      .lte("expires_at", now);
+    /* =====================================================
+       EXPIRE OLD SESSIONS
+    ===================================================== */
+
+    const { error: expireError } =
+      await supabase
+        .from("device_discovery_sessions")
+        .update({
+          status: "expired",
+          updated_at: now,
+        })
+        .eq("status", "available")
+        .lte("expires_at", now);
 
     if (expireError) {
-      console.error("Discovery expiry error:", expireError);
+      console.error(
+        "Discovery expiry error:",
+        expireError,
+      );
 
       return NextResponse.json(
-        { ok: false, error: "DISCOVERY_CLEANUP_FAILED" },
-        { status: 500 }
+        {
+          ok: false,
+          error: "DISCOVERY_CLEANUP_FAILED",
+        },
+        { status: 500 },
       );
     }
 
-    /*
-     * Find currently available devices.
-     */
-    const { data: sessions, error: sessionsError } = await supabase
+    /* =====================================================
+       ONLY SESSIONS BOUND TO CURRENT USER
+
+       SECURITY:
+       We intentionally DO NOT return globally available
+       discovery sessions.
+
+       A device must first be securely bound to this user.
+    ===================================================== */
+
+    const {
+      data: sessions,
+      error: sessionsError,
+    } = await supabase
       .from("device_discovery_sessions")
       .select(`
         id,
@@ -85,15 +124,24 @@ export async function GET(request: NextRequest) {
         created_at
       `)
       .eq("status", "available")
+      .eq("bound_user_id", user.id)
       .gt("expires_at", now)
-      .order("created_at", { ascending: false });
+      .order("created_at", {
+        ascending: false,
+      });
 
     if (sessionsError) {
-      console.error("Discovery lookup error:", sessionsError);
+      console.error(
+        "Discovery lookup error:",
+        sessionsError,
+      );
 
       return NextResponse.json(
-        { ok: false, error: "DISCOVERY_LOOKUP_FAILED" },
-        { status: 500 }
+        {
+          ok: false,
+          error: "DISCOVERY_LOOKUP_FAILED",
+        },
+        { status: 500 },
       );
     }
 
@@ -104,34 +152,55 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    /*
-     * Double-check ownership.
-     * Claimed devices must never appear in discovery.
-     */
-    const deviceIds = [...new Set(sessions.map((item) => item.device_id))];
+    /* =====================================================
+       OWNERSHIP SAFETY CHECK
+    ===================================================== */
 
-    const { data: ownerships, error: ownershipError } = await supabase
+    const deviceIds = [
+      ...new Set(
+        sessions.map(
+          (item) => item.device_id,
+        ),
+      ),
+    ];
+
+    const {
+      data: ownerships,
+      error: ownershipError,
+    } = await supabase
       .from("device_ownership")
       .select("device_id")
       .in("device_id", deviceIds)
       .eq("status", "active");
 
     if (ownershipError) {
-      console.error("Ownership lookup error:", ownershipError);
+      console.error(
+        "Ownership lookup error:",
+        ownershipError,
+      );
 
       return NextResponse.json(
-        { ok: false, error: "OWNERSHIP_LOOKUP_FAILED" },
-        { status: 500 }
+        {
+          ok: false,
+          error: "OWNERSHIP_LOOKUP_FAILED",
+        },
+        { status: 500 },
       );
     }
 
     const claimed = new Set(
-      (ownerships ?? []).map((item) => item.device_id)
+      (ownerships ?? []).map(
+        (item) => item.device_id,
+      ),
     );
 
-    const availableSessions = sessions.filter(
-      (session) => !claimed.has(session.device_id)
-    );
+    const availableSessions =
+      sessions.filter(
+        (session) =>
+          !claimed.has(
+            session.device_id,
+          ),
+      );
 
     if (availableSessions.length === 0) {
       return NextResponse.json({
@@ -140,15 +209,22 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    /*
-     * Get safe device metadata.
-     * No DEVICE_SECRET / DEVICE_SECRET_ID / hashes are returned.
-     */
+    /* =====================================================
+       SAFE DEVICE METADATA
+    ===================================================== */
+
     const availableDeviceIds = [
-      ...new Set(availableSessions.map((item) => item.device_id)),
+      ...new Set(
+        availableSessions.map(
+          (item) => item.device_id,
+        ),
+      ),
     ];
 
-    const { data: registry, error: registryError } = await supabase
+    const {
+      data: registry,
+      error: registryError,
+    } = await supabase
       .from("device_registry")
       .select(`
         device_id,
@@ -157,46 +233,85 @@ export async function GET(request: NextRequest) {
         lifecycle_state,
         metadata
       `)
-      .in("device_id", availableDeviceIds);
+      .in(
+        "device_id",
+        availableDeviceIds,
+      );
 
     if (registryError) {
-      console.error("Registry lookup error:", registryError);
+      console.error(
+        "Registry lookup error:",
+        registryError,
+      );
 
       return NextResponse.json(
-        { ok: false, error: "REGISTRY_LOOKUP_FAILED" },
-        { status: 500 }
+        {
+          ok: false,
+          error: "REGISTRY_LOOKUP_FAILED",
+        },
+        { status: 500 },
       );
     }
 
-    const registryMap = new Map(
-      (registry ?? []).map((device) => [device.device_id, device])
-    );
+    const registryMap =
+      new Map(
+        (registry ?? []).map(
+          (device) => [
+            device.device_id,
+            device,
+          ],
+        ),
+      );
 
-    const devices = availableSessions.map((session) => {
-      const device = registryMap.get(session.device_id);
+    const devices =
+      availableSessions.map(
+        (session) => {
+          const device =
+            registryMap.get(
+              session.device_id,
+            );
 
-      return {
-        discovery_session_id: session.id,
-        device_id: session.device_id,
+          return {
+            discovery_session_id:
+              session.id,
 
-        hardware_model: device?.hardware_model ?? null,
-        firmware_version: device?.firmware_version ?? null,
-        lifecycle_state: device?.lifecycle_state ?? null,
+            device_id:
+              session.device_id,
 
-        expires_at: session.expires_at,
-      };
-    });
+            hardware_model:
+              device?.hardware_model ??
+              null,
+
+            firmware_version:
+              device?.firmware_version ??
+              null,
+
+            lifecycle_state:
+              device?.lifecycle_state ??
+              null,
+
+            expires_at:
+              session.expires_at,
+          };
+        },
+      );
 
     return NextResponse.json({
       ok: true,
       devices,
     });
   } catch (error) {
-    console.error("DEVICE DISCOVER ERROR:", error);
+    console.error(
+      "DEVICE DISCOVER ERROR:",
+      error,
+    );
 
     return NextResponse.json(
-      { ok: false, error: "INTERNAL_SERVER_ERROR" },
-      { status: 500 }
+      {
+        ok: false,
+        error: "INTERNAL_SERVER_ERROR",
+      },
+      { status: 500 },
     );
   }
 }

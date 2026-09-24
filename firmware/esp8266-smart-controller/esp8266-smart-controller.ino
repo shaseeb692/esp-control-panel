@@ -183,6 +183,41 @@ String sha256Hex(const String &input) {
   );
 }
 
+String hmacSha256Hex(
+  const String &key,
+  const String &message
+) {
+  br_hmac_key_context keyContext;
+  br_hmac_context hmacContext;
+  uint8_t digest[32];
+
+  br_hmac_key_init(
+    &keyContext,
+    &br_sha256_vtable,
+    key.c_str(),
+    key.length()
+  );
+
+  br_hmac_init(
+    &hmacContext,
+    &keyContext,
+    0
+  );
+
+  br_hmac_update(
+    &hmacContext,
+    message.c_str(),
+    message.length()
+  );
+
+  br_hmac_out(
+    &hmacContext,
+    digest
+  );
+
+  return bytesToHex(digest, sizeof(digest));
+}
+
 String calculateIdentityCheck(
   const String &id,
   const String &chip,
@@ -1282,6 +1317,262 @@ void handleMotor2Toggle() {
 }
 
 /* =====================================================
+   SECURE LOCAL LAN API
+===================================================== */
+
+String localLanKey() {
+  return sha256Hex(
+    String("PHANTOM|LAN|KEY|V1|") +
+    deviceId + "|" + deviceSecret
+  );
+}
+
+void sendLocalCorsHeaders() {
+  server.sendHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  server.sendHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type,X-Device-Id,X-Lan-Nonce,X-Lan-Signature"
+  );
+  server.sendHeader("Access-Control-Max-Age", "600");
+}
+
+void handleLocalApiOptions() {
+  sendLocalCorsHeaders();
+  server.send(204, "text/plain", "");
+}
+
+bool validLocalNonce(const String &nonce) {
+  if (nonce.length() < 16 || nonce.length() > 96) return false;
+
+  for (size_t i = 0; i < nonce.length(); i++) {
+    char c = nonce[i];
+
+    if (
+      !(
+        (c >= 'a' && c <= 'z') ||
+        (c >= 'A' && c <= 'Z') ||
+        (c >= '0' && c <= '9') ||
+        c == '-' ||
+        c == '_'
+      )
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool constantTimeHexEqual(
+  const String &a,
+  const String &b
+) {
+  if (a.length() != b.length()) return false;
+
+  uint8_t diff = 0;
+
+  for (size_t i = 0; i < a.length(); i++) {
+    char ac = a[i];
+    char bc = b[i];
+
+    if (ac >= 'A' && ac <= 'F') ac += 32;
+    if (bc >= 'A' && bc <= 'F') bc += 32;
+
+    diff |= (uint8_t)(ac ^ bc);
+  }
+
+  return diff == 0;
+}
+
+bool authenticateLocalRequest(
+  const String &method,
+  const String &path,
+  const String &body
+) {
+  if (
+    !identityValid ||
+    setupMode ||
+    WiFi.status() != WL_CONNECTED
+  ) {
+    return false;
+  }
+
+  if (
+    !server.hasHeader("X-Device-Id") ||
+    !server.hasHeader("X-Lan-Nonce") ||
+    !server.hasHeader("X-Lan-Signature")
+  ) {
+    return false;
+  }
+
+  String headerDeviceId = server.header("X-Device-Id");
+  String nonce = server.header("X-Lan-Nonce");
+  String signature = server.header("X-Lan-Signature");
+
+  headerDeviceId.trim();
+  nonce.trim();
+  signature.trim();
+  signature.toLowerCase();
+
+  if (
+    headerDeviceId != deviceId ||
+    !validLocalNonce(nonce) ||
+    signature.length() != 64
+  ) {
+    return false;
+  }
+
+  String canonical =
+    String("PHANTOM|LAN|V1|") +
+    method + "|" +
+    path + "|" +
+    deviceId + "|" +
+    nonce + "|" +
+    sha256Hex(body);
+
+  String expected =
+    hmacSha256Hex(
+      localLanKey(),
+      canonical
+    );
+
+  return constantTimeHexEqual(expected, signature);
+}
+
+void handleLocalApiStatus() {
+  String json = "{";
+
+  json += "\"success\":true";
+  json += ",\"device_id\":\"";
+  json += deviceId;
+  json += "\"";
+  json += ",\"mode\":\"local_lan\"";
+  json += ",\"motor1\":";
+  json += motor1State ? "true" : "false";
+  json += ",\"motor2\":";
+  json += motor2State ? "true" : "false";
+  json += ",\"online\":";
+  json +=
+    WiFi.status() == WL_CONNECTED
+      ? "true"
+      : "false";
+  json += ",\"ip\":\"";
+  json += WiFi.localIP().toString();
+  json += "\"";
+  json += "}";
+
+  sendLocalCorsHeaders();
+
+  server.send(
+    200,
+    "application/json",
+    json
+  );
+}
+
+void handleLocalApiControl() {
+  String body =
+    server.hasArg("plain")
+      ? server.arg("plain")
+      : "";
+
+  if (
+    !authenticateLocalRequest(
+      "POST",
+      "/api/local/control",
+      body
+    )
+  ) {
+    sendLocalCorsHeaders();
+
+    server.send(
+      401,
+      "application/json",
+      "{\"success\":false,\"error\":\"UNAUTHORIZED\"}"
+    );
+
+    return;
+  }
+
+  String compact = body;
+  compact.replace(" ", "");
+  compact.replace("\r", "");
+  compact.replace("\n", "");
+  compact.replace("\t", "");
+
+  bool value;
+
+  if (compact.indexOf("\"value\":true") >= 0) {
+    value = true;
+  } else if (compact.indexOf("\"value\":false") >= 0) {
+    value = false;
+  } else {
+    sendLocalCorsHeaders();
+
+    server.send(
+      400,
+      "application/json",
+      "{\"success\":false,\"error\":\"INVALID_VALUE\"}"
+    );
+
+    return;
+  }
+
+  String controlId = "";
+
+  if (
+    compact.indexOf(
+      "\"control_id\":\"motor1\""
+    ) >= 0
+  ) {
+    controlId = "motor1";
+    setMotor1(value);
+  } else if (
+    compact.indexOf(
+      "\"control_id\":\"motor2\""
+    ) >= 0
+  ) {
+    controlId = "motor2";
+    setMotor2(value);
+  } else {
+    sendLocalCorsHeaders();
+
+    server.send(
+      400,
+      "application/json",
+      "{\"success\":false,\"error\":\"UNKNOWN_CONTROL\"}"
+    );
+
+    return;
+  }
+
+  String json = "{";
+
+  json += "\"success\":true";
+  json += ",\"device_id\":\"";
+  json += deviceId;
+  json += "\"";
+  json += ",\"control_id\":\"";
+  json += controlId;
+  json += "\"";
+  json += ",\"value\":";
+  json += value ? "true" : "false";
+  json += ",\"motor1\":";
+  json += motor1State ? "true" : "false";
+  json += ",\"motor2\":";
+  json += motor2State ? "true" : "false";
+  json += "}";
+
+  sendLocalCorsHeaders();
+
+  server.send(
+    200,
+    "application/json",
+    json
+  );
+}
+
+/* =====================================================
    WIFI RESET
 ===================================================== */
 
@@ -1578,6 +1869,36 @@ void connectSavedWiFi() {
     "/status",
     HTTP_GET,
     handleStatus
+  );
+
+  server.collectHeaders(
+  "X-Device-Id",
+  "X-Lan-Nonce",
+  "X-Lan-Signature"
+);
+
+  server.on(
+    "/api/local/status",
+    HTTP_GET,
+    handleLocalApiStatus
+  );
+
+  server.on(
+    "/api/local/status",
+    HTTP_OPTIONS,
+    handleLocalApiOptions
+  );
+
+  server.on(
+    "/api/local/control",
+    HTTP_POST,
+    handleLocalApiControl
+  );
+
+  server.on(
+    "/api/local/control",
+    HTTP_OPTIONS,
+    handleLocalApiOptions
   );
 
   server.on(

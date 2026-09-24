@@ -46,3 +46,9 @@ device-secrets/
 device-qr/
 
 .device-qr*.png
+
+# Generated factory secret
+firmware/shared/FactorySecrets.generated.h
+
+# Generated factory secrets - never commit
+firmware/**/FactorySecrets.generated.h

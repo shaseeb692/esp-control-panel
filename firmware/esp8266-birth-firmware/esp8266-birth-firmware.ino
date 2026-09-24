@@ -1,7 +1,8 @@
-#include <Arduino.h>
+﻿#include <Arduino.h>
 #include <EEPROM.h>
 #include <ESP8266WiFi.h>
 #include <bearssl/bearssl.h>
+#include "FactorySecrets.generated.h"
 extern "C" {
   #include "user_interface.h"
 }
@@ -70,8 +71,7 @@ const char MAP_VERSION[] = "MAP-V1";
    - Stage-2 should NOT contain this factory generation key
    ========================================================= */
 
-const char FACTORY_HMAC_KEY[] =
-  "CHANGE-THIS-FACTORY-KEY-BEFORE-PRODUCTION";
+const char FACTORY_HMAC_KEY[] = PHANTOM_FACTORY_HMAC_KEY;
 
 
 /* =========================================================
@@ -443,7 +443,7 @@ String buildDeviceSecretId(
 
   /*
      SHA256 = 64 hex characters
-     8 blocks × 8 chars
+     8 blocks Ã— 8 chars
   */
 
   for (int block = 0; block < 8; block++) {
@@ -1208,3 +1208,4 @@ void loop() {
 
   delay(10);
 }
+
