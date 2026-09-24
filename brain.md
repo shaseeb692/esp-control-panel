@@ -1195,3 +1195,39 @@ Next push:
 
 - Discovery-based claim migration and complete legacy QR/token architecture removal.
 - Exact new commit hash will be recorded in the following development update.
+
+---
+
+## Development Update - 2026-09-24
+
+### Last Successful Git Push
+- Commit: b46e80d
+- Branch: main
+- Machine: Office PC
+- Message: Complete device security APIs and firmware LAN foundation
+
+### Progress
+- Point 18 - Discovery binding/backend: DONE; hardware E2E pending.
+- Point 19 - Registration anti-replay backend: DONE; hardware E2E pending.
+- Point 20 - Factory key generation: DONE for local development.
+  - FactorySecrets.generated.h is automatically generated for shared and Birth firmware folders.
+  - Generated factory secret headers are Git ignored and must never be committed.
+  - Production secret deployment/rotation remains pending.
+- Point 21 - Device heartbeat authentication backend: DONE; firmware E2E pending.
+- Point 22 - Online/offline backend detection: DONE.
+  - Database cron is minute-granularity; exact 90-second client timeout remains pending if required.
+- Point 23 - Cloud command authentication backend: DONE; firmware E2E pending.
+- Point 24 - Local LAN foundation: IMPLEMENTED.
+  - ESP8266 smart-controller firmware compiles successfully.
+  - Birth firmware compiles successfully.
+  - Local LAN status/control API foundation added.
+  - Hardware/LAN E2E testing remains pending.
+- QR-based device onboarding is REMOVED from the intended UX.
+- Room Add Device UI now uses Scan Device / discovery wording.
+- Device onboarding remains app-primary discovery flow without QR.
+- Point 25 - Schedule synchronization to ESP: NEXT.
+
+### Security / Build Rule
+- Never commit .env.local or FactorySecrets.generated.h.
+- Factory secret headers must be generated locally/build-time using scripts/generate-factory-key-header.ps1.
+- New Supabase public tables must include explicit GRANT/REVOKE permissions in the same migration; do not rely on automatic Data API grants.

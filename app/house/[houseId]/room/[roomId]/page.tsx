@@ -667,7 +667,7 @@ export default function RoomPage() {
                 </h2>
 
                 <p className={`mt-1 text-sm ${muted}`}>
-                  Add a controller to {room.name} using the QR code shown by the device.
+                  Add a controller to {room.name} by scanning for available devices.
                 </p>
               </div>
 
@@ -711,7 +711,7 @@ export default function RoomPage() {
               </p>
               <p className={`mt-1 leading-6 ${muted}`}>
                 Connect the ESP to Wi-Fi, open its local IP, then open the
-                Connect Device tab to display its temporary QR code.
+                Connect the ESP to Wi-Fi and make sure the device is ready for discovery.
               </p>
             </div>
 
@@ -741,7 +741,7 @@ export default function RoomPage() {
                 style={{ backgroundColor: THEME_COLOR }}
               >
                 <Plus size={18} />
-                Scan Device QR
+                Scan Device
               </button>
             </div>
           </div>
