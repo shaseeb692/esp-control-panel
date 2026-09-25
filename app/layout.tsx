@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Smart Water Motor",
-  description: "Smart Water Motor Control System",
+  title: "Phantom Smart Homes",
+  description: "Control and automate your smart home with Phantom Smart Homes | secure device management, real-time controls, smart schedules, and seamless home automation.",
 };
 
 export default function RootLayout({
