@@ -1231,3 +1231,59 @@ Next push:
 - Never commit .env.local or FactorySecrets.generated.h.
 - Factory secret headers must be generated locally/build-time using scripts/generate-factory-key-header.ps1.
 - New Supabase public tables must include explicit GRANT/REVOKE permissions in the same migration; do not rely on automatic Data API grants.
+
+============================================================
+UPDATE - 2026-09-25 11:17 PKT - POINT 25
+============================================================
+
+POINT 25 - DEVICE SCHEDULE SYNC
+STATUS: IMPLEMENTED / COMPILE PASSED / HARDWARE E2E PENDING
+
+Backend:
+- Added signed GET /api/device/schedules device endpoint.
+- Device authentication uses timestamp + nonce + HMAC-SHA256.
+- Canonical: PHANTOM|SCHEDULE|V1|GET|deviceId|timestamp|nonce|sha256(empty-body).
+- Added device_schedule_revisions for monotonic device-level schedule revisions.
+- Schedule insert/update/delete advances device revision.
+- Enabled schedules returned as compact device snapshot.
+
+Firmware:
+- Added verified HTTPS cloud foundation using GTS Root R1.
+- Added NTP time synchronization required for TLS and signed requests.
+- No setInsecure() used.
+- Added signed schedule snapshot fetching.
+- Device HMAC key matches backend: lowercase SHA256(deviceSecret) hex string used as UTF-8 key.
+- Schedule snapshots are parsed into fixed runtime RAM structures.
+- Supports multiple schedules per device/control.
+- Supports Monday-Sunday days_mask.
+- Supports ON and OFF schedule edges.
+- Cross-midnight rule implemented: selected day is the ON/start day; OFF executes on the following day.
+- Manual state is not forcibly changed outside schedule edges.
+- Already-synced RAM schedules continue executing if internet becomes unavailable.
+- Reboot while offline loses RAM schedule snapshot; persistent flash snapshot remains future work.
+- Current firmware timezone execution supports Asia/Karachi / PKT UTC+05:00.
+- Arbitrary IANA timezone support remains future work.
+
+Point 25C compile result:
+- RAM: 31580 / 80192 bytes (39%)
+- IRAM: 60711 / 65536 bytes (92%)
+- Flash: 406568 / 1048576 bytes (38%)
+- Compile: PASSED
+
+Validation still pending:
+- Real ESP8266 hardware test.
+- Live signed schedule fetch against production API.
+- Physical relay ON/OFF schedule execution.
+- Cross-midnight hardware test.
+- Offline-after-sync execution test.
+- Reboot/offline persistence is not implemented yet.
+
+LAST SUCCESSFUL GIT PUSH BEFORE THIS UPDATE:
+- Commit: b9b22d9
+- Message: Update device discovery UI and project roadmap
+- Branch: main
+- Machine: SEO-PC / Office
+
+NEXT:
+- Hardware E2E validation for Points 18-25.
+- Continue next roadmap point after software validation.

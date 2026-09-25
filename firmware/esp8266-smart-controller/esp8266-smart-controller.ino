@@ -1,6 +1,9 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClientSecureBearSSL.h>
+#include <time.h>
 #include <EEPROM.h>
 #include <bearssl/bearssl.h>
 
@@ -72,6 +75,82 @@ static const uint16_t DEVICE_SECRET_ID_SIZE  = 136;
 static const char IDENTITY_MAGIC[] = "PHBIRTH";
 static const uint8_t IDENTITY_VERSION = 2;
 static const char MAP_VERSION[] = "MAP-V1";
+
+/* =========================
+   CLOUD / TLS / NTP
+========================= */
+
+static const char CLOUD_HOST[] = "esp-control-panel.vercel.app";
+static const uint16_t CLOUD_PORT = 443;
+
+static const char NTP_SERVER_1[] = "pool.ntp.org";
+static const char NTP_SERVER_2[] = "time.google.com";
+static const char NTP_SERVER_3[] = "time.cloudflare.com";
+
+static const unsigned long NTP_RETRY_INTERVAL = 30000;
+static const unsigned long SCHEDULE_SYNC_INTERVAL = 60000;
+static const unsigned long SCHEDULE_SYNC_RETRY_INTERVAL = 15000;
+static const time_t MIN_VALID_UNIX_TIME = 1704067200; // 2024-01-01 UTC
+
+static const char GTS_ROOT_R1[] PROGMEM = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIIFVzCCAz+gAwIBAgINAgPlk28xsBNJiGuiFzANBgkqhkiG9w0BAQwFADBHMQsw
+CQYDVQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2VzIExMQzEU
+MBIGA1UEAxMLR1RTIFJvb3QgUjEwHhcNMTYwNjIyMDAwMDAwWhcNMzYwNjIyMDAw
+MDAwWjBHMQswCQYDVQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZp
+Y2VzIExMQzEUMBIGA1UEAxMLR1RTIFJvb3QgUjEwggIiMA0GCSqGSIb3DQEBAQUA
+A4ICDwAwggIKAoICAQC2EQKLHuOhd5s73L+UPreVp0A8of2C+X0yBoJx9vaMf/vo
+27xqLpeXo4xL+Sv2sfnOhB2x+cWX3u+58qPpvBKJXqeqUqv4IyfLpLGcY9vXmX7w
+Cl7raKb0xlpHDU0QM+NOsROjyBhsS+z8CZDfnWQpJSMHobTSPS5g4M/SCYe7zUjw
+TcLCeoiKu7rPWRnWr4+wB7CeMfGCwcDfLqZtbBkOtdh+JhpFAz2weaSUKK0Pfybl
+qAj+lug8aJRT7oM6iCsVlgmy4HqMLnXWnOunVmSPlk9orj2XwoSPwLxAwAtcvfaH
+szVsrBhQf4TgTM2S0yDpM7xSma8ytSmzJSq0SPly4cpk9+aCEI3oncKKiPo4Zor8
+Y/kB+Xj9e1x3+naH+uzfsQ55lVe0vSbv1gHR6xYKu44LtcXFilWr06zqkUspzBmk
+MiVOKvFlRNACzqrOSbTqn3yDsEB750Orp2yjj32JgfpMpf/VjsPOS+C12LOORc92
+wO1AK/1TD7Cn1TsNsYqiA94xrcx36m97PtbfkSIS5r762DL8EGMUUXLeXdYWk70p
+aDPvOmbsB4om3xPXV2V4J95eSRQAogB/mqghtqmxlbCluQ0WEdrHbEg8QOB+DVrN
+VjzRlwW5y0vtOUucxD/SVRNuJLDWcfr0wbrM7Rv1/oFB2ACYPTrIrnqYNxgFlQID
+AQABo0IwQDAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4E
+FgQU5K8rJnEaK0gnhS9SZizv8IkTcT4wDQYJKoZIhvcNAQEMBQADggIBAJ+qQibb
+C5u+/x6Wki4+omVKapi6Ist9wTrYggoGxval3sBOh2Z5ofmmWJyq+bXmYOfg6LEe
+QkEzCzc9zolwFcq1JKjPa7XSQCGYzyI0zzvFIoTgxQ6KfF2I5DUkzps+GlQebtuy
+h6f88/qBVRRiClmpIgUxPoLW7ttXNLwzldMXG+gnoot7TiYaelpkttGsN/H9oPM4
+7HLwEXWdyzRSjeZ2axfG34arJ45JK3VmgRAhpuo+9K4l/3wV3s6MJT/KYnAK9y8J
+ZgfIPxz88NtFMN9iiMG1D53Dn0reWVlHxYciNuaCp+0KueIHoI17eko8cdLiA6Ef
+MgfdG+RCzgwARWGAtQsgWSl4vflVy2PFPEz0tv/bal8xa5meLMFrUKTX5hgUvYU/
+Z6tGn6D/Qqc6f1zLXbBwHSs09dR2CQzreExZBfMzQsNhFRAbd03OIozUhfJFfbdT
+6u9AWpQKXCBfTkBdYiJ23//OYb2MI3jSNwLgjt7RETeJ9r/tSQdirpLsQBqvFAnZ
+0E6yove+7u7Y/9waLd64NnHi/Hm3lCXRSHNboTXns5lndcEZOitHTtNCjv0xyBZm
+2tIMPNuzjsmhDYAPexZ3FL//2wmUspO8IFgV6dtxQ/PeEMMA3KgqlbbC1j+Qa3bb
+bP6MvPJwNQzcmRk13NfIRmPVNnGuV/u3gm3c
+-----END CERTIFICATE-----
+)EOF";
+
+BearSSL::X509List cloudTrustAnchor(GTS_ROOT_R1);
+
+bool networkTimeValid = false;
+unsigned long lastNtpRetry = 0;
+
+unsigned long lastScheduleSyncAttempt = 0;
+unsigned long lastScheduleSyncSuccess = 0;
+uint64_t scheduleSnapshotVersion = 0;
+String scheduleSnapshotJson = "";
+
+static const uint8_t MAX_DEVICE_SCHEDULES = 24;
+
+struct RuntimeSchedule {
+  String id;
+  String controlId;
+  uint16_t onMinute;
+  uint16_t offMinute;
+  uint8_t daysMask;
+  bool crossMidnight;
+};
+
+RuntimeSchedule runtimeSchedules[MAX_DEVICE_SCHEDULES];
+uint8_t runtimeScheduleCount = 0;
+uint64_t runtimeScheduleVersion = 0;
+long lastScheduleMinuteKey = -1;
 
 /* =========================
    RUNTIME
@@ -228,6 +307,725 @@ String calculateIdentityCheck(
     String("PHANTOM|IDENTITY|V2|") +
     id + "|" + chip + "|" + secret + "|" + secretId
   );
+}
+
+/* =====================================================
+   NETWORK TIME + VERIFIED TLS
+===================================================== */
+
+bool hasValidNetworkTime() {
+  time_t now = time(nullptr);
+
+  return now >= MIN_VALID_UNIX_TIME;
+}
+
+void startNetworkTimeSync() {
+  if (
+    setupMode ||
+    WiFi.status() != WL_CONNECTED
+  ) {
+    return;
+  }
+
+  Serial.println(
+    F("STARTING NTP TIME SYNC")
+  );
+
+  /*
+    Keep system time in UTC.
+
+    Schedule timezone conversion/execution is added
+    in Point 25C. TLS certificate validation only
+    needs a correct absolute clock.
+  */
+  configTime(
+    0,
+    0,
+    NTP_SERVER_1,
+    NTP_SERVER_2,
+    NTP_SERVER_3
+  );
+
+  lastNtpRetry = millis();
+}
+
+void maintainNetworkTime() {
+  if (
+    setupMode ||
+    !identityValid ||
+    WiFi.status() != WL_CONNECTED
+  ) {
+    networkTimeValid = false;
+    return;
+  }
+
+  if (hasValidNetworkTime()) {
+    if (!networkTimeValid) {
+      networkTimeValid = true;
+
+      time_t now = time(nullptr);
+
+      Serial.print(
+        F("NETWORK TIME READY: ")
+      );
+
+      Serial.println(
+        (unsigned long)now
+      );
+    }
+
+    return;
+  }
+
+  networkTimeValid = false;
+
+  if (
+    lastNtpRetry != 0 &&
+    millis() - lastNtpRetry <
+      NTP_RETRY_INTERVAL
+  ) {
+    return;
+  }
+
+  startNetworkTimeSync();
+}
+
+bool prepareVerifiedCloudClient(
+  BearSSL::WiFiClientSecure &client
+) {
+  if (
+    WiFi.status() != WL_CONNECTED ||
+    !hasValidNetworkTime()
+  ) {
+    return false;
+  }
+
+  /*
+    IMPORTANT:
+    - No setInsecure().
+    - Do not pin the short-lived *.vercel.app leaf cert.
+    - Trust GTS Root R1 so normal Vercel certificate
+      renewal does not break the device.
+  */
+  client.setTrustAnchors(
+    &cloudTrustAnchor
+  );
+
+  client.setTimeout(15000);
+
+  return true;
+}
+
+void printCloudFoundationStatus() {
+  Serial.print(
+    F("CLOUD HOST: ")
+  );
+  Serial.println(CLOUD_HOST);
+
+  Serial.print(
+    F("TLS MODE: ")
+  );
+  Serial.println(
+    F("GTS ROOT R1 VERIFIED")
+  );
+
+  Serial.print(
+    F("NTP: ")
+  );
+  Serial.println(
+    hasValidNetworkTime()
+      ? F("READY")
+      : F("WAITING")
+  );
+}
+
+/* =====================================================
+   POINT 25B - SIGNED CLOUD SCHEDULE SYNC
+===================================================== */
+
+String makeCloudNonce() {
+  char buffer[33];
+
+  snprintf(
+    buffer,
+    sizeof(buffer),
+    "%08x%08x%08x%08x",
+    ESP.getChipId(),
+    ESP.getCycleCount(),
+    os_random(),
+    os_random()
+  );
+
+  return String(buffer);
+}
+
+String deviceCloudHmacKey() {
+  /*
+    Backend device auth uses the lowercase SHA-256 hex
+    string of the raw device secret as UTF-8 HMAC key.
+  */
+  return sha256Hex(deviceSecret);
+}
+
+bool extractUnsignedJsonInteger(
+  const String &json,
+  const String &key,
+  uint64_t &value
+) {
+  String needle =
+    String("\"") + key + "\":";
+
+  int start = json.indexOf(needle);
+  if (start < 0) return false;
+
+  start += needle.length();
+
+  while (
+    start < (int)json.length() &&
+    (
+      json[start] == ' ' ||
+      json[start] == '\t' ||
+      json[start] == '\r' ||
+      json[start] == '\n'
+    )
+  ) {
+    start++;
+  }
+
+  if (
+    start >= (int)json.length() ||
+    json[start] < '0' ||
+    json[start] > '9'
+  ) {
+    return false;
+  }
+
+  uint64_t parsed = 0;
+
+  while (
+    start < (int)json.length() &&
+    json[start] >= '0' &&
+    json[start] <= '9'
+  ) {
+    uint8_t digit =
+      (uint8_t)(json[start] - '0');
+
+    if (
+      parsed >
+      (UINT64_MAX - digit) / 10ULL
+    ) {
+      return false;
+    }
+
+    parsed =
+      parsed * 10ULL + digit;
+
+    start++;
+  }
+
+  value = parsed;
+  return true;
+}
+
+bool fetchScheduleSnapshot() {
+  if (
+    setupMode ||
+    !identityValid ||
+    WiFi.status() != WL_CONNECTED ||
+    !hasValidNetworkTime()
+  ) {
+    return false;
+  }
+
+  BearSSL::WiFiClientSecure client;
+
+  if (
+    !prepareVerifiedCloudClient(client)
+  ) {
+    return false;
+  }
+
+  HTTPClient https;
+
+  String url =
+    String("https://") +
+    CLOUD_HOST +
+    "/api/device/schedules";
+
+  if (!https.begin(client, url)) {
+    Serial.println(
+      F("SCHEDULE SYNC: HTTPS BEGIN FAILED")
+    );
+    return false;
+  }
+
+  https.setTimeout(15000);
+
+  String timestamp =
+    String((unsigned long)time(nullptr));
+
+  String nonce = makeCloudNonce();
+
+  String emptyBodyHash =
+    sha256Hex("");
+
+  String canonical =
+    String("PHANTOM|SCHEDULE|V1|GET|") +
+    deviceId + "|" +
+    timestamp + "|" +
+    nonce + "|" +
+    emptyBodyHash;
+
+  String signature =
+    hmacSha256Hex(
+      deviceCloudHmacKey(),
+      canonical
+    );
+
+  https.addHeader(
+    "X-Device-Id",
+    deviceId
+  );
+
+  https.addHeader(
+    "X-Device-Timestamp",
+    timestamp
+  );
+
+  https.addHeader(
+    "X-Device-Nonce",
+    nonce
+  );
+
+  https.addHeader(
+    "X-Device-Signature",
+    signature
+  );
+
+  int statusCode = https.GET();
+
+  if (statusCode != HTTP_CODE_OK) {
+    Serial.print(
+      F("SCHEDULE SYNC HTTP: ")
+    );
+    Serial.println(statusCode);
+
+    String errorBody =
+      https.getString();
+
+    if (errorBody.length() > 0) {
+      Serial.print(
+        F("SCHEDULE SYNC BODY: ")
+      );
+
+      Serial.println(errorBody);
+    }
+
+    https.end();
+    return false;
+  }
+
+  String payload =
+    https.getString();
+
+  https.end();
+
+  uint64_t incomingVersion = 0;
+
+  if (
+    !extractUnsignedJsonInteger(
+      payload,
+      "version",
+      incomingVersion
+    )
+  ) {
+    Serial.println(
+      F("SCHEDULE SYNC: INVALID VERSION")
+    );
+    return false;
+  }
+
+  /*
+    Point 25B intentionally stores the verified cloud
+    snapshot without executing it yet.
+
+    Point 25C will parse the compact schedules array
+    into fixed RAM structs and execute ON/OFF edges.
+  */
+  if (
+    incomingVersion != runtimeScheduleVersion ||
+    runtimeScheduleVersion == 0
+  ) {
+    if (
+      !parseScheduleSnapshotToRam(
+        payload,
+        incomingVersion
+      )
+    ) {
+      Serial.println(
+        F("SCHEDULE SYNC: RAM PARSE FAILED")
+      );
+      return false;
+    }
+  }
+
+  scheduleSnapshotJson = payload;
+  scheduleSnapshotVersion =
+    incomingVersion;
+
+  lastScheduleSyncSuccess =
+    millis();
+
+  Serial.print(
+    F("SCHEDULE SYNC OK VERSION: ")
+  );
+
+  char versionBuffer[24];
+
+  snprintf(
+    versionBuffer,
+    sizeof(versionBuffer),
+    "%llu",
+    (unsigned long long)
+      scheduleSnapshotVersion
+  );
+
+  Serial.println(versionBuffer);
+
+  Serial.print(
+    F("SCHEDULE SNAPSHOT BYTES: ")
+  );
+
+  Serial.println(
+    scheduleSnapshotJson.length()
+  );
+
+  return true;
+}
+
+
+bool extractJsonStringField(
+  const String &objectJson,
+  const String &key,
+  String &value
+) {
+  String needle = String("\"") + key + "\":\"";
+  int start = objectJson.indexOf(needle);
+  if (start < 0) return false;
+  start += needle.length();
+
+  int end = start;
+  bool escaped = false;
+
+  while (end < (int)objectJson.length()) {
+    char c = objectJson[end];
+    if (!escaped && c == '"') break;
+    if (!escaped && c == '\\') escaped = true;
+    else escaped = false;
+    end++;
+  }
+
+  if (end >= (int)objectJson.length()) return false;
+  value = objectJson.substring(start, end);
+  return true;
+}
+
+bool extractJsonUIntField(
+  const String &objectJson,
+  const String &key,
+  uint32_t &value
+) {
+  uint64_t temp = 0;
+  if (!extractUnsignedJsonInteger(objectJson, key, temp)) return false;
+  if (temp > 0xFFFFFFFFULL) return false;
+  value = (uint32_t)temp;
+  return true;
+}
+
+bool parseClockMinute(
+  const String &clockText,
+  uint16_t &minuteOfDay
+) {
+  if (clockText.length() < 5) return false;
+  if (clockText[2] != ':') return false;
+
+  int hh =
+    (clockText[0] - '0') * 10 +
+    (clockText[1] - '0');
+
+  int mm =
+    (clockText[3] - '0') * 10 +
+    (clockText[4] - '0');
+
+  if (
+    clockText[0] < '0' || clockText[0] > '9' ||
+    clockText[1] < '0' || clockText[1] > '9' ||
+    clockText[3] < '0' || clockText[3] > '9' ||
+    clockText[4] < '0' || clockText[4] > '9' ||
+    hh < 0 || hh > 23 ||
+    mm < 0 || mm > 59
+  ) {
+    return false;
+  }
+
+  minuteOfDay = (uint16_t)(hh * 60 + mm);
+  return true;
+}
+
+bool applyScheduleControl(
+  const String &controlId,
+  bool turnOn
+) {
+  if (controlId == "motor1") {
+    setMotor1(turnOn);
+    return true;
+  }
+
+  if (controlId == "motor2") {
+    setMotor2(turnOn);
+    return true;
+  }
+
+  Serial.print(F("SCHEDULE: UNKNOWN CONTROL "));
+  Serial.println(controlId);
+  return false;
+}
+
+bool parseScheduleSnapshotToRam(
+  const String &json,
+  uint64_t version
+) {
+  int schedulesKey = json.indexOf("\"schedules\"");
+  if (schedulesKey < 0) return false;
+
+  int arrayStart = json.indexOf('[', schedulesKey);
+  if (arrayStart < 0) return false;
+
+  int arrayEnd = json.indexOf(']', arrayStart);
+  if (arrayEnd < 0) return false;
+
+  RuntimeSchedule parsed[MAX_DEVICE_SCHEDULES];
+  uint8_t parsedCount = 0;
+  int cursor = arrayStart + 1;
+
+  while (
+    cursor < arrayEnd &&
+    parsedCount < MAX_DEVICE_SCHEDULES
+  ) {
+    int objectStart = json.indexOf('{', cursor);
+    if (
+      objectStart < 0 ||
+      objectStart >= arrayEnd
+    ) break;
+
+    int objectEnd = json.indexOf('}', objectStart);
+    if (
+      objectEnd < 0 ||
+      objectEnd > arrayEnd
+    ) return false;
+
+    String objectJson =
+      json.substring(objectStart, objectEnd + 1);
+
+    String id;
+    String controlId;
+    String onText;
+    String offText;
+    String timezone;
+    uint32_t daysMask = 0;
+    uint16_t onMinute = 0;
+    uint16_t offMinute = 0;
+
+    if (
+      !extractJsonStringField(objectJson, "id", id) ||
+      !extractJsonStringField(objectJson, "c", controlId) ||
+      !extractJsonStringField(objectJson, "on", onText) ||
+      !extractJsonStringField(objectJson, "off", offText) ||
+      !extractJsonUIntField(objectJson, "d", daysMask) ||
+      !extractJsonStringField(objectJson, "tz", timezone) ||
+      !parseClockMinute(onText, onMinute) ||
+      !parseClockMinute(offText, offMinute) ||
+      daysMask > 127
+    ) {
+      Serial.println(F("SCHEDULE PARSE: INVALID ENTRY"));
+      return false;
+    }
+
+    // Current UI/source of truth is Asia/Karachi.
+    if (
+      timezone != "Asia/Karachi" &&
+      timezone != "PKT"
+    ) {
+      Serial.print(F("SCHEDULE PARSE: UNSUPPORTED TZ "));
+      Serial.println(timezone);
+      return false;
+    }
+
+    parsed[parsedCount].id = id;
+    parsed[parsedCount].controlId = controlId;
+    parsed[parsedCount].onMinute = onMinute;
+    parsed[parsedCount].offMinute = offMinute;
+    parsed[parsedCount].daysMask = (uint8_t)daysMask;
+    parsed[parsedCount].crossMidnight =
+      offMinute <= onMinute;
+
+    parsedCount++;
+    cursor = objectEnd + 1;
+  }
+
+  for (uint8_t i = 0; i < parsedCount; i++) {
+    runtimeSchedules[i] = parsed[i];
+  }
+
+  runtimeScheduleCount = parsedCount;
+  runtimeScheduleVersion = version;
+  lastScheduleMinuteKey = -1;
+
+  Serial.print(F("SCHEDULE RAM LOADED: "));
+  Serial.println(runtimeScheduleCount);
+
+  return true;
+}
+
+uint8_t mondayBasedDayBit(const tm &localTm) {
+  // tm_wday: Sun=0, Mon=1 ... Sat=6
+  uint8_t mondayIndex =
+    localTm.tm_wday == 0
+      ? 6
+      : (uint8_t)(localTm.tm_wday - 1);
+
+  return (uint8_t)(1U << mondayIndex);
+}
+
+uint8_t previousMondayBasedDayBit(const tm &localTm) {
+  uint8_t mondayIndex =
+    localTm.tm_wday == 0
+      ? 6
+      : (uint8_t)(localTm.tm_wday - 1);
+
+  uint8_t previousIndex =
+    mondayIndex == 0 ? 6 : mondayIndex - 1;
+
+  return (uint8_t)(1U << previousIndex);
+}
+
+void executeScheduleEdges() {
+  if (
+    runtimeScheduleCount == 0 ||
+    !hasValidNetworkTime()
+  ) {
+    return;
+  }
+
+  time_t utcNow = time(nullptr);
+
+  // Asia/Karachi / PKT = UTC+05:00, no DST.
+  time_t pktNow = utcNow + 5 * 60 * 60;
+
+  tm localTm;
+  gmtime_r(&pktNow, &localTm);
+
+  long minuteKey =
+    (long)(pktNow / 60);
+
+  if (minuteKey == lastScheduleMinuteKey) {
+    return;
+  }
+
+  lastScheduleMinuteKey = minuteKey;
+
+  uint16_t nowMinute =
+    (uint16_t)(
+      localTm.tm_hour * 60 +
+      localTm.tm_min
+    );
+
+  uint8_t todayBit =
+    mondayBasedDayBit(localTm);
+
+  uint8_t previousDayBit =
+    previousMondayBasedDayBit(localTm);
+
+  /*
+    Edge semantics:
+    - Selected day applies to the ON/start day.
+    - Same-day OFF uses the same selected day.
+    - If off <= on, OFF belongs to the next day.
+    - Multiple schedules are independent event edges.
+    - Outside a schedule window we do NOT force a control OFF,
+      so manual control remains possible.
+  */
+  for (
+    uint8_t i = 0;
+    i < runtimeScheduleCount;
+    i++
+  ) {
+    RuntimeSchedule &schedule =
+      runtimeSchedules[i];
+
+    if (
+      nowMinute == schedule.onMinute &&
+      (schedule.daysMask & todayBit)
+    ) {
+      Serial.print(F("SCHEDULE ON: "));
+      Serial.println(schedule.controlId);
+      applyScheduleControl(
+        schedule.controlId,
+        true
+      );
+    }
+
+    bool offDue = false;
+
+    if (schedule.crossMidnight) {
+      offDue =
+        nowMinute == schedule.offMinute &&
+        (schedule.daysMask & previousDayBit);
+    } else {
+      offDue =
+        nowMinute == schedule.offMinute &&
+        (schedule.daysMask & todayBit);
+    }
+
+    if (offDue) {
+      Serial.print(F("SCHEDULE OFF: "));
+      Serial.println(schedule.controlId);
+      applyScheduleControl(
+        schedule.controlId,
+        false
+      );
+    }
+  }
+}
+
+void maintainScheduleSync() {
+  if (
+    setupMode ||
+    !identityValid ||
+    WiFi.status() != WL_CONNECTED ||
+    !hasValidNetworkTime()
+  ) {
+    return;
+  }
+
+  unsigned long now = millis();
+
+  unsigned long interval =
+    lastScheduleSyncSuccess == 0
+      ? SCHEDULE_SYNC_RETRY_INTERVAL
+      : SCHEDULE_SYNC_INTERVAL;
+
+  if (
+    lastScheduleSyncAttempt != 0 &&
+    now - lastScheduleSyncAttempt <
+      interval
+  ) {
+    return;
+  }
+
+  lastScheduleSyncAttempt = now;
+
+  fetchScheduleSnapshot();
 }
 
 /* =====================================================
@@ -1831,6 +2629,9 @@ void connectSavedWiFi() {
     Serial.println(
       WiFi.localIP()
     );
+
+    startNetworkTimeSync();
+    printCloudFoundationStatus();
   } else {
     wifiConnected = false;
 
@@ -1954,6 +2755,9 @@ void maintainWiFi() {
       Serial.println(
         WiFi.localIP()
       );
+
+      startNetworkTimeSync();
+      printCloudFoundationStatus();
     }
 
     return;
@@ -2106,6 +2910,12 @@ void loop() {
   server.handleClient();
 
   maintainWiFi();
+
+  maintainNetworkTime();
+
+  maintainScheduleSync();
+
+  executeScheduleEdges();
 
   handleSerialCommands();
 
