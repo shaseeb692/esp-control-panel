@@ -1336,3 +1336,171 @@ LATEST SUCCESSFUL GIT PUSH:
 - Commit: 07f3fa0
 - Commit Message: Complete device schedule sync foundation
 
+
+============================================================
+UPDATE - 2026-09-25 - POINT 26 CLOUD FIRMWARE INTEGRATION
+============================================================
+
+POINT 26 - CLOUD DEVICE FIRMWARE INTEGRATION
+STATUS: SOFTWARE IMPLEMENTED / COMPILE PASSED / HARDWARE E2E PENDING
+
+Point 26A - Automatic Cloud Registration
+STATUS: IMPLEMENTED / COMPILE PASSED
+- ESP requests registration challenge after Wi-Fi + valid NTP.
+- Registration proof uses HMAC-SHA256 with the raw device secret.
+- Canonical registration proof:
+  PHANTOM|REGISTER|V1|deviceId|challengeId|challenge
+- Registration is performed over verified HTTPS.
+- Registration is not triggered from the Wi-Fi save handler.
+- Failed registration retries automatically.
+- Hardware/live backend validation remains pending.
+
+Point 26B - Signed Device Heartbeat
+STATUS: IMPLEMENTED / COMPILE PASSED
+- Added signed POST /api/device/status heartbeat.
+- Uses timestamp + nonce + SHA256 body hash + HMAC-SHA256.
+- Canonical:
+  PHANTOM|HEARTBEAT|V1|deviceId|timestamp|nonce|sha256(body)
+- Device HMAC key matches backend:
+  lowercase SHA256(deviceSecret) hex string used as UTF-8 key.
+- Heartbeat reports device online state and current motor states.
+- Normal heartbeat interval: 30 seconds.
+- Initial/retry interval: 10 seconds.
+- Hardware/live backend validation remains pending.
+
+Point 26C - Signed Cloud Commands
+STATUS: IMPLEMENTED / COMPILE PASSED
+- Added signed GET /api/device/commands.
+- Pending commands are polled from the cloud.
+- Current hardware command execution supports motor1 and motor2.
+- STATUS command is supported.
+- Added signed PATCH acknowledgement.
+- Commands are acknowledged as completed or failed.
+- Canonical:
+  PHANTOM|COMMAND|V1|method|deviceId|timestamp|nonce|sha256(body)
+- Successful control execution triggers an immediate heartbeat refresh.
+- Normal command polling interval: 2 seconds.
+- Hardware/live backend validation remains pending.
+
+CURRENT SMART-CONTROLLER CLOUD CHAIN:
+Wi-Fi
+-> NTP / verified TLS
+-> Device Registration
+-> Signed Heartbeat
+-> Signed Command Fetch
+-> Command Execution
+-> Signed Command ACK
+-> Schedule Sync
+-> Schedule Execution
+
+COMPILE STATUS:
+- Point 26A: PASSED
+- Point 26B: PASSED
+- Point 26C: PASSED
+
+IMPORTANT:
+- Compile success confirms software builds only.
+- Real ESP8266 hardware/cloud E2E validation is still required.
+- Do not mark Points 18-26 production-complete until hardware E2E passes.
+- QR onboarding remains REMOVED.
+- Automatic discovery remains the only current onboarding architecture.
+
+NEXT:
+- Point 26D / Hardware E2E validation.
+- Validate registration against live backend.
+- Validate heartbeat and online/offline state.
+- Validate automatic discovery and claim.
+- Validate cloud motor commands and ACK.
+- Validate schedule download and physical execution.
+- Validate internet-loss behavior.
+
+LATEST SUCCESSFUL GIT PUSH BEFORE THIS UPDATE:
+- Date: 2026-09-25
+- Branch: main
+- Machine: SEO-PC / Office
+- Commit: 07f3fa0
+- Commit Message: Complete device schedule sync foundation
+
+============================================================
+UPDATE - 2026-09-25 - POINT 26 CLOUD FIRMWARE INTEGRATION
+============================================================
+
+POINT 26 - CLOUD DEVICE FIRMWARE INTEGRATION
+STATUS: SOFTWARE IMPLEMENTED / COMPILE PASSED / HARDWARE E2E PENDING
+
+Point 26A - Automatic Cloud Registration
+STATUS: IMPLEMENTED / COMPILE PASSED
+- ESP requests registration challenge after Wi-Fi + valid NTP.
+- Registration proof uses HMAC-SHA256 with the raw device secret.
+- Canonical registration proof:
+  PHANTOM|REGISTER|V1|deviceId|challengeId|challenge
+- Registration is performed over verified HTTPS.
+- Registration is not triggered from the Wi-Fi save handler.
+- Failed registration retries automatically.
+- Hardware/live backend validation remains pending.
+
+Point 26B - Signed Device Heartbeat
+STATUS: IMPLEMENTED / COMPILE PASSED
+- Added signed POST /api/device/status heartbeat.
+- Uses timestamp + nonce + SHA256 body hash + HMAC-SHA256.
+- Canonical:
+  PHANTOM|HEARTBEAT|V1|deviceId|timestamp|nonce|sha256(body)
+- Device HMAC key matches backend:
+  lowercase SHA256(deviceSecret) hex string used as UTF-8 key.
+- Heartbeat reports device online state and current motor states.
+- Normal heartbeat interval: 30 seconds.
+- Initial/retry interval: 10 seconds.
+- Hardware/live backend validation remains pending.
+
+Point 26C - Signed Cloud Commands
+STATUS: IMPLEMENTED / COMPILE PASSED
+- Added signed GET /api/device/commands.
+- Pending commands are polled from the cloud.
+- Current hardware command execution supports motor1 and motor2.
+- STATUS command is supported.
+- Added signed PATCH acknowledgement.
+- Commands are acknowledged as completed or failed.
+- Canonical:
+  PHANTOM|COMMAND|V1|method|deviceId|timestamp|nonce|sha256(body)
+- Successful control execution triggers an immediate heartbeat refresh.
+- Normal command polling interval: 2 seconds.
+- Hardware/live backend validation remains pending.
+
+CURRENT SMART-CONTROLLER CLOUD CHAIN:
+Wi-Fi
+-> NTP / verified TLS
+-> Device Registration
+-> Signed Heartbeat
+-> Signed Command Fetch
+-> Command Execution
+-> Signed Command ACK
+-> Schedule Sync
+-> Schedule Execution
+
+COMPILE STATUS:
+- Point 26A: PASSED
+- Point 26B: PASSED
+- Point 26C: PASSED
+
+IMPORTANT:
+- Compile success confirms software builds only.
+- Real ESP8266 hardware/cloud E2E validation is still required.
+- Do not mark Points 18-26 production-complete until hardware E2E passes.
+- QR onboarding remains REMOVED.
+- Automatic discovery remains the only current onboarding architecture.
+
+NEXT:
+- Point 26D / Hardware E2E validation.
+- Validate registration against live backend.
+- Validate heartbeat and online/offline state.
+- Validate automatic discovery and claim.
+- Validate cloud motor commands and ACK.
+- Validate schedule download and physical execution.
+- Validate internet-loss behavior.
+
+LATEST SUCCESSFUL GIT PUSH BEFORE THIS UPDATE:
+- Date: 2026-09-25
+- Branch: main
+- Machine: SEO-PC / Office
+- Commit: 07f3fa0
+- Commit Message: Complete device schedule sync foundation

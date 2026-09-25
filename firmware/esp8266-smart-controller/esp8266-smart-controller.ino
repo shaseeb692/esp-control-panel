@@ -90,6 +90,14 @@ static const char NTP_SERVER_3[] = "time.cloudflare.com";
 static const unsigned long NTP_RETRY_INTERVAL = 30000;
 static const unsigned long SCHEDULE_SYNC_INTERVAL = 60000;
 static const unsigned long SCHEDULE_SYNC_RETRY_INTERVAL = 15000;
+static const unsigned long DEVICE_REGISTRATION_RETRY_INTERVAL = 15000;
+static const unsigned long DEVICE_REGISTRATION_REFRESH_INTERVAL = 6UL * 60UL * 60UL * 1000UL;
+static const unsigned long DEVICE_HEARTBEAT_INTERVAL = 30000;
+static const unsigned long DEVICE_HEARTBEAT_RETRY_INTERVAL = 10000;
+static const unsigned long DEVICE_COMMAND_POLL_INTERVAL = 2000;
+static const unsigned long DEVICE_COMMAND_RETRY_INTERVAL = 5000;
+static const char HARDWARE_MODEL[] = "ESP8266-NODEMCU-V3";
+static const char FIRMWARE_VERSION[] = "26A";
 static const time_t MIN_VALID_UNIX_TIME = 1704067200; // 2024-01-01 UTC
 
 static const char GTS_ROOT_R1[] PROGMEM = R"EOF(
@@ -133,6 +141,13 @@ unsigned long lastNtpRetry = 0;
 
 unsigned long lastScheduleSyncAttempt = 0;
 unsigned long lastScheduleSyncSuccess = 0;
+unsigned long lastDeviceRegistrationAttempt = 0;
+unsigned long lastDeviceRegistrationSuccess = 0;
+bool deviceCloudRegistered = false;
+unsigned long lastDeviceHeartbeatAttempt = 0;
+unsigned long lastDeviceHeartbeatSuccess = 0;
+unsigned long lastDeviceCommandPollAttempt = 0;
+unsigned long lastDeviceCommandPollSuccess = 0;
 uint64_t scheduleSnapshotVersion = 0;
 String scheduleSnapshotJson = "";
 
@@ -440,6 +455,633 @@ void printCloudFoundationStatus() {
 }
 
 /* =====================================================
+   POINT 26B - SIGNED CLOUD HEARTBEAT
+===================================================== */
+
+bool sendDeviceHeartbeat() {
+  if (
+    setupMode ||
+    !identityValid ||
+    !deviceCloudRegistered ||
+    WiFi.status() != WL_CONNECTED ||
+    !hasValidNetworkTime()
+  ) {
+    return false;
+  }
+
+  String body =
+    String("{\"device_id\":\"") +
+    jsonEscape(deviceId) +
+    "\",\"status_data\":{\"motor1\":" +
+    (motor1State ? "true" : "false") +
+    ",\"motor2\":" +
+    (motor2State ? "true" : "false") +
+    "},\"online\":true}";
+
+  String timestamp =
+    String((unsigned long)time(nullptr));
+
+  String nonce = makeCloudNonce();
+
+  String bodyHash = sha256Hex(body);
+
+  String canonical =
+    String("PHANTOM|HEARTBEAT|V1|") +
+    deviceId + "|" +
+    timestamp + "|" +
+    nonce + "|" +
+    bodyHash;
+
+  String signature =
+    hmacSha256Hex(
+      deviceCloudHmacKey(),
+      canonical
+    );
+
+  BearSSL::WiFiClientSecure client;
+
+  if (!prepareVerifiedCloudClient(client)) {
+    return false;
+  }
+
+  HTTPClient https;
+
+  String url =
+    String("https://") +
+    CLOUD_HOST +
+    "/api/device/status";
+
+  if (!https.begin(client, url)) {
+    Serial.println(F("HEARTBEAT: HTTPS BEGIN FAILED"));
+    return false;
+  }
+
+  https.setTimeout(15000);
+  https.addHeader("Content-Type", "application/json");
+  https.addHeader("X-Device-Id", deviceId);
+  https.addHeader("X-Device-Timestamp", timestamp);
+  https.addHeader("X-Device-Nonce", nonce);
+  https.addHeader("X-Device-Signature", signature);
+
+  int statusCode =
+    https.POST(
+      (uint8_t *)body.c_str(),
+      body.length()
+    );
+
+  String response = https.getString();
+  https.end();
+
+  if (
+    statusCode < 200 ||
+    statusCode >= 300
+  ) {
+    Serial.print(F("HEARTBEAT HTTP: "));
+    Serial.println(statusCode);
+
+    if (response.length() > 0) {
+      Serial.print(F("HEARTBEAT BODY: "));
+      Serial.println(response);
+    }
+
+    return false;
+  }
+
+  lastDeviceHeartbeatSuccess = millis();
+
+  Serial.println(F("DEVICE HEARTBEAT: OK"));
+
+  return true;
+}
+
+void maintainDeviceHeartbeat() {
+  if (
+    setupMode ||
+    !identityValid ||
+    !deviceCloudRegistered ||
+    WiFi.status() != WL_CONNECTED ||
+    !hasValidNetworkTime()
+  ) {
+    return;
+  }
+
+  unsigned long now = millis();
+
+  unsigned long interval =
+    lastDeviceHeartbeatSuccess == 0
+      ? DEVICE_HEARTBEAT_RETRY_INTERVAL
+      : DEVICE_HEARTBEAT_INTERVAL;
+
+  if (
+    lastDeviceHeartbeatAttempt != 0 &&
+    now - lastDeviceHeartbeatAttempt < interval
+  ) {
+    return;
+  }
+
+  lastDeviceHeartbeatAttempt = now;
+  sendDeviceHeartbeat();
+}
+
+/* =====================================================
+   POINT 26C - SIGNED CLOUD COMMAND FETCH + ACK
+===================================================== */
+
+bool extractJsonBoolValue(
+  const String &json,
+  const String &key,
+  bool &value
+) {
+  String needle = String("\"") + key + "\"";
+  int keyPos = json.indexOf(needle);
+  if (keyPos < 0) return false;
+
+  int colon = json.indexOf(':', keyPos + needle.length());
+  if (colon < 0) return false;
+
+  int start = colon + 1;
+  while (
+    start < (int)json.length() &&
+    (
+      json[start] == ' ' ||
+      json[start] == '\t' ||
+      json[start] == '\r' ||
+      json[start] == '\n'
+    )
+  ) start++;
+
+  if (json.substring(start, start + 4) == "true") {
+    value = true;
+    return true;
+  }
+
+  if (json.substring(start, start + 5) == "false") {
+    value = false;
+    return true;
+  }
+
+  return false;
+}
+
+bool extractJsonNumberValue(
+  const String &json,
+  const String &key,
+  double &value
+) {
+  String needle = String("\"") + key + "\"";
+  int keyPos = json.indexOf(needle);
+  if (keyPos < 0) return false;
+
+  int colon = json.indexOf(':', keyPos + needle.length());
+  if (colon < 0) return false;
+
+  int start = colon + 1;
+  while (
+    start < (int)json.length() &&
+    (
+      json[start] == ' ' ||
+      json[start] == '\t' ||
+      json[start] == '\r' ||
+      json[start] == '\n'
+    )
+  ) start++;
+
+  int end = start;
+  while (
+    end < (int)json.length() &&
+    (
+      (json[end] >= '0' && json[end] <= '9') ||
+      json[end] == '-' ||
+      json[end] == '+' ||
+      json[end] == '.' ||
+      json[end] == 'e' ||
+      json[end] == 'E'
+    )
+  ) end++;
+
+  if (end <= start) return false;
+
+  value = json.substring(start, end).toDouble();
+  return true;
+}
+
+String makeCommandCanonical(
+  const String &method,
+  const String &timestamp,
+  const String &nonce,
+  const String &body
+) {
+  return
+    String("PHANTOM|COMMAND|V1|") +
+    method + "|" +
+    deviceId + "|" +
+    timestamp + "|" +
+    nonce + "|" +
+    sha256Hex(body);
+}
+
+bool acknowledgeCloudCommand(
+  const String &commandId,
+  const String &status
+) {
+  String body =
+    String("{\"command_id\":\"") +
+    jsonEscape(commandId) +
+    "\",\"status\":\"" +
+    jsonEscape(status) +
+    "\"}";
+
+  String timestamp =
+    String((unsigned long)time(nullptr));
+
+  String nonce = makeCloudNonce();
+
+  String canonical =
+    makeCommandCanonical(
+      "PATCH",
+      timestamp,
+      nonce,
+      body
+    );
+
+  String signature =
+    hmacSha256Hex(
+      deviceCloudHmacKey(),
+      canonical
+    );
+
+  BearSSL::WiFiClientSecure client;
+
+  if (!prepareVerifiedCloudClient(client)) {
+    return false;
+  }
+
+  HTTPClient https;
+
+  String url =
+    String("https://") +
+    CLOUD_HOST +
+    "/api/device/commands";
+
+  if (!https.begin(client, url)) {
+    Serial.println(F("COMMAND ACK: HTTPS BEGIN FAILED"));
+    return false;
+  }
+
+  https.setTimeout(15000);
+  https.addHeader("Content-Type", "application/json");
+  https.addHeader("X-Device-Id", deviceId);
+  https.addHeader("X-Device-Timestamp", timestamp);
+  https.addHeader("X-Device-Nonce", nonce);
+  https.addHeader("X-Device-Signature", signature);
+
+  int statusCode =
+    https.sendRequest(
+      "PATCH",
+      (uint8_t *)body.c_str(),
+      body.length()
+    );
+
+  String response = https.getString();
+  https.end();
+
+  if (
+    statusCode < 200 ||
+    statusCode >= 300
+  ) {
+    Serial.print(F("COMMAND ACK HTTP: "));
+    Serial.println(statusCode);
+
+    if (response.length() > 0) {
+      Serial.print(F("COMMAND ACK BODY: "));
+      Serial.println(response);
+    }
+
+    return false;
+  }
+
+  Serial.print(F("COMMAND ACK: "));
+  Serial.print(commandId);
+  Serial.print(F(" -> "));
+  Serial.println(status);
+
+  return true;
+}
+
+bool executeCloudCommandObject(
+  const String &objectJson
+) {
+  String commandId;
+  String commandText;
+
+  if (
+    !extractJsonStringValue(
+      objectJson,
+      "id",
+      commandId
+    )
+  ) {
+    Serial.println(F("COMMAND: MISSING ID"));
+    return false;
+  }
+
+  if (
+    !extractJsonStringValue(
+      objectJson,
+      "command",
+      commandText
+    )
+  ) {
+    Serial.println(F("COMMAND: MISSING COMMAND"));
+    acknowledgeCloudCommand(commandId, "failed");
+    return false;
+  }
+
+  commandText.trim();
+
+  if (commandText == "STATUS") {
+    bool acked =
+      acknowledgeCloudCommand(
+        commandId,
+        "completed"
+      );
+
+    if (acked) {
+      lastDeviceHeartbeatAttempt = 0;
+    }
+
+    return acked;
+  }
+
+  String controlId;
+  bool boolValue = false;
+
+  if (
+    extractJsonStringValue(
+      commandText,
+      "control_id",
+      controlId
+    )
+  ) {
+    if (
+      controlId == "motor1" ||
+      controlId == "motor2"
+    ) {
+      if (
+        !extractJsonBoolValue(
+          commandText,
+          "value",
+          boolValue
+        )
+      ) {
+        Serial.println(F("COMMAND: INVALID SWITCH VALUE"));
+        acknowledgeCloudCommand(commandId, "failed");
+        return false;
+      }
+
+      if (controlId == "motor1") {
+        setMotor1(boolValue);
+      } else {
+        setMotor2(boolValue);
+      }
+
+      bool acked =
+        acknowledgeCloudCommand(
+          commandId,
+          "completed"
+        );
+
+      if (acked) {
+        // Push changed state immediately instead of waiting
+        // for the normal heartbeat interval.
+        lastDeviceHeartbeatAttempt = 0;
+      }
+
+      return acked;
+    }
+
+    /*
+      Current hardware firmware exposes motor1/motor2.
+      Future capability types (slider/number/button etc.)
+      must be mapped to actual hardware before execution.
+    */
+    Serial.print(F("COMMAND: UNKNOWN CONTROL "));
+    Serial.println(controlId);
+    acknowledgeCloudCommand(commandId, "failed");
+    return false;
+  }
+
+  Serial.println(F("COMMAND: INVALID PAYLOAD"));
+  acknowledgeCloudCommand(commandId, "failed");
+  return false;
+}
+
+bool processCloudCommandArray(
+  const String &payload
+) {
+  int arrayStart = payload.indexOf('[');
+  int arrayEnd = payload.lastIndexOf(']');
+
+  if (
+    arrayStart < 0 ||
+    arrayEnd < arrayStart
+  ) {
+    Serial.println(F("COMMAND FETCH: INVALID ARRAY"));
+    return false;
+  }
+
+  int cursor = arrayStart + 1;
+  uint8_t processed = 0;
+
+  while (cursor < arrayEnd) {
+    int objectStart =
+      payload.indexOf('{', cursor);
+
+    if (
+      objectStart < 0 ||
+      objectStart >= arrayEnd
+    ) {
+      break;
+    }
+
+    int depth = 0;
+    bool inString = false;
+    bool escaped = false;
+    int objectEnd = -1;
+
+    for (
+      int i = objectStart;
+      i <= arrayEnd;
+      i++
+    ) {
+      char c = payload[i];
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (c == '\\') {
+          escaped = true;
+        } else if (c == '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (c == '"') {
+        inString = true;
+        continue;
+      }
+
+      if (c == '{') depth++;
+
+      if (c == '}') {
+        depth--;
+
+        if (depth == 0) {
+          objectEnd = i;
+          break;
+        }
+      }
+    }
+
+    if (objectEnd < 0) {
+      Serial.println(F("COMMAND FETCH: BROKEN OBJECT"));
+      return false;
+    }
+
+    String objectJson =
+      payload.substring(
+        objectStart,
+        objectEnd + 1
+      );
+
+    executeCloudCommandObject(objectJson);
+
+    processed++;
+    cursor = objectEnd + 1;
+    yield();
+  }
+
+  if (processed > 0) {
+    Serial.print(F("COMMANDS PROCESSED: "));
+    Serial.println(processed);
+  }
+
+  return true;
+}
+
+bool fetchCloudCommands() {
+  if (
+    setupMode ||
+    !identityValid ||
+    !deviceCloudRegistered ||
+    WiFi.status() != WL_CONNECTED ||
+    !hasValidNetworkTime()
+  ) {
+    return false;
+  }
+
+  String timestamp =
+    String((unsigned long)time(nullptr));
+
+  String nonce = makeCloudNonce();
+  String body = "";
+
+  String canonical =
+    makeCommandCanonical(
+      "GET",
+      timestamp,
+      nonce,
+      body
+    );
+
+  String signature =
+    hmacSha256Hex(
+      deviceCloudHmacKey(),
+      canonical
+    );
+
+  BearSSL::WiFiClientSecure client;
+
+  if (!prepareVerifiedCloudClient(client)) {
+    return false;
+  }
+
+  HTTPClient https;
+
+  String url =
+    String("https://") +
+    CLOUD_HOST +
+    "/api/device/commands";
+
+  if (!https.begin(client, url)) {
+    Serial.println(F("COMMAND FETCH: HTTPS BEGIN FAILED"));
+    return false;
+  }
+
+  https.setTimeout(15000);
+  https.addHeader("X-Device-Id", deviceId);
+  https.addHeader("X-Device-Timestamp", timestamp);
+  https.addHeader("X-Device-Nonce", nonce);
+  https.addHeader("X-Device-Signature", signature);
+
+  int statusCode = https.GET();
+  String payload = https.getString();
+  https.end();
+
+  if (
+    statusCode < 200 ||
+    statusCode >= 300
+  ) {
+    Serial.print(F("COMMAND FETCH HTTP: "));
+    Serial.println(statusCode);
+
+    if (payload.length() > 0) {
+      Serial.print(F("COMMAND FETCH BODY: "));
+      Serial.println(payload);
+    }
+
+    return false;
+  }
+
+  if (!processCloudCommandArray(payload)) {
+    return false;
+  }
+
+  lastDeviceCommandPollSuccess = millis();
+  return true;
+}
+
+void maintainCloudCommands() {
+  if (
+    setupMode ||
+    !identityValid ||
+    !deviceCloudRegistered ||
+    WiFi.status() != WL_CONNECTED ||
+    !hasValidNetworkTime()
+  ) {
+    return;
+  }
+
+  unsigned long now = millis();
+
+  unsigned long interval =
+    lastDeviceCommandPollSuccess == 0
+      ? DEVICE_COMMAND_RETRY_INTERVAL
+      : DEVICE_COMMAND_POLL_INTERVAL;
+
+  if (
+    lastDeviceCommandPollAttempt != 0 &&
+    now - lastDeviceCommandPollAttempt < interval
+  ) {
+    return;
+  }
+
+  lastDeviceCommandPollAttempt = now;
+  fetchCloudCommands();
+}
+
+/* =====================================================
    POINT 25B - SIGNED CLOUD SCHEDULE SYNC
 ===================================================== */
 
@@ -465,6 +1107,334 @@ String deviceCloudHmacKey() {
     string of the raw device secret as UTF-8 HMAC key.
   */
   return sha256Hex(deviceSecret);
+}
+
+
+String jsonEscape(const String &value) {
+  String out;
+  out.reserve(value.length() + 8);
+
+  for (size_t i = 0; i < value.length(); i++) {
+    char c = value[i];
+
+    switch (c) {
+      case '"':  out += "\\\""; break;
+      case '\\': out += "\\\\"; break;
+      case '\b': out += "\\b"; break;
+      case '\f': out += "\\f"; break;
+      case '\n': out += "\\n"; break;
+      case '\r': out += "\\r"; break;
+      case '\t': out += "\\t"; break;
+      default:
+        if ((uint8_t)c >= 0x20) out += c;
+        break;
+    }
+  }
+
+  return out;
+}
+
+bool extractJsonStringValue(
+  const String &json,
+  const String &key,
+  String &value
+) {
+  String needle = String("\"") + key + "\"";
+  int keyPos = json.indexOf(needle);
+  if (keyPos < 0) return false;
+
+  int colon = json.indexOf(':', keyPos + needle.length());
+  if (colon < 0) return false;
+
+  int start = colon + 1;
+  while (
+    start < (int)json.length() &&
+    (
+      json[start] == ' ' ||
+      json[start] == '\t' ||
+      json[start] == '\r' ||
+      json[start] == '\n'
+    )
+  ) {
+    start++;
+  }
+
+  if (
+    start >= (int)json.length() ||
+    json[start] != '"'
+  ) {
+    return false;
+  }
+
+  start++;
+
+  String parsed;
+  bool escaped = false;
+
+  for (int i = start; i < (int)json.length(); i++) {
+    char c = json[i];
+
+    if (escaped) {
+      switch (c) {
+        case '"':  parsed += '"'; break;
+        case '\\': parsed += '\\'; break;
+        case '/':  parsed += '/'; break;
+        case 'b':  parsed += '\b'; break;
+        case 'f':  parsed += '\f'; break;
+        case 'n':  parsed += '\n'; break;
+        case 'r':  parsed += '\r'; break;
+        case 't':  parsed += '\t'; break;
+        default:   parsed += c; break;
+      }
+
+      escaped = false;
+      continue;
+    }
+
+    if (c == '\\') {
+      escaped = true;
+      continue;
+    }
+
+    if (c == '"') {
+      value = parsed;
+      return true;
+    }
+
+    parsed += c;
+  }
+
+  return false;
+}
+
+/* =====================================================
+   POINT 26A - AUTOMATIC CLOUD DEVICE REGISTRATION
+===================================================== */
+
+bool requestDeviceRegistrationChallenge(
+  String &challengeId,
+  String &challenge
+) {
+  BearSSL::WiFiClientSecure client;
+
+  if (!prepareVerifiedCloudClient(client)) {
+    return false;
+  }
+
+  HTTPClient https;
+
+  String url =
+    String("https://") +
+    CLOUD_HOST +
+    "/api/device/register-challenge";
+
+  if (!https.begin(client, url)) {
+    Serial.println(F("REGISTER CHALLENGE: HTTPS BEGIN FAILED"));
+    return false;
+  }
+
+  https.setTimeout(15000);
+  https.addHeader("Content-Type", "application/json");
+
+  String body =
+    String("{\"device_id\":\"") +
+    jsonEscape(deviceId) +
+    "\",\"chip_id\":\"" +
+    jsonEscape(storedChipId) +
+    "\"}";
+
+  int statusCode =
+    https.POST((uint8_t *)body.c_str(), body.length());
+
+  String response = https.getString();
+  https.end();
+
+  if (
+    statusCode < 200 ||
+    statusCode >= 300
+  ) {
+    Serial.print(F("REGISTER CHALLENGE HTTP: "));
+    Serial.println(statusCode);
+
+    if (response.length() > 0) {
+      Serial.print(F("REGISTER CHALLENGE BODY: "));
+      Serial.println(response);
+    }
+
+    return false;
+  }
+
+  if (
+    !extractJsonStringValue(
+      response,
+      "challenge_id",
+      challengeId
+    ) ||
+    !extractJsonStringValue(
+      response,
+      "challenge",
+      challenge
+    ) ||
+    challengeId.length() == 0 ||
+    challenge.length() == 0
+  ) {
+    Serial.println(F("REGISTER CHALLENGE: INVALID RESPONSE"));
+    return false;
+  }
+
+  Serial.println(F("REGISTER CHALLENGE: OK"));
+  return true;
+}
+
+bool registerDeviceWithCloud() {
+  if (
+    setupMode ||
+    !identityValid ||
+    WiFi.status() != WL_CONNECTED ||
+    !hasValidNetworkTime()
+  ) {
+    return false;
+  }
+
+  String challengeId;
+  String challenge;
+
+  if (
+    !requestDeviceRegistrationChallenge(
+      challengeId,
+      challenge
+    )
+  ) {
+    return false;
+  }
+
+  String proofCanonical =
+    String("PHANTOM|REGISTER|V1|") +
+    deviceId + "|" +
+    challengeId + "|" +
+    challenge;
+
+  /*
+    Registration challenge proof uses the RAW birth
+    DEVICE_SECRET as the HMAC-SHA256 key.
+  */
+  String challengeProof =
+    hmacSha256Hex(
+      deviceSecret,
+      proofCanonical
+    );
+
+  BearSSL::WiFiClientSecure client;
+
+  if (!prepareVerifiedCloudClient(client)) {
+    return false;
+  }
+
+  HTTPClient https;
+
+  String url =
+    String("https://") +
+    CLOUD_HOST +
+    "/api/device/register";
+
+  if (!https.begin(client, url)) {
+    Serial.println(F("DEVICE REGISTER: HTTPS BEGIN FAILED"));
+    return false;
+  }
+
+  https.setTimeout(15000);
+  https.addHeader("Content-Type", "application/json");
+
+  String body;
+  body.reserve(
+    420 +
+    deviceSecretId.length()
+  );
+
+  body =
+    String("{\"device_id\":\"") +
+    jsonEscape(deviceId) +
+    "\",\"chip_id\":\"" +
+    jsonEscape(storedChipId) +
+    "\",\"device_secret\":\"" +
+    jsonEscape(deviceSecret) +
+    "\",\"device_secret_id\":\"" +
+    jsonEscape(deviceSecretId) +
+    "\",\"map_version\":\"" +
+    jsonEscape(storedMapVersion) +
+    "\",\"hardware_model\":\"" +
+    HARDWARE_MODEL +
+    "\",\"firmware_version\":\"" +
+    FIRMWARE_VERSION +
+    "\",\"challenge_id\":\"" +
+    jsonEscape(challengeId) +
+    "\",\"challenge\":\"" +
+    jsonEscape(challenge) +
+    "\",\"challenge_proof\":\"" +
+    challengeProof +
+    "\"}";
+
+  int statusCode =
+    https.POST((uint8_t *)body.c_str(), body.length());
+
+  String response = https.getString();
+  https.end();
+
+  if (
+    statusCode < 200 ||
+    statusCode >= 300
+  ) {
+    Serial.print(F("DEVICE REGISTER HTTP: "));
+    Serial.println(statusCode);
+
+    if (response.length() > 0) {
+      Serial.print(F("DEVICE REGISTER BODY: "));
+      Serial.println(response);
+    }
+
+    deviceCloudRegistered = false;
+    return false;
+  }
+
+  deviceCloudRegistered = true;
+  lastDeviceRegistrationSuccess = millis();
+
+  Serial.println(F("DEVICE CLOUD REGISTRATION: OK"));
+
+  if (response.length() > 0) {
+    Serial.print(F("DEVICE REGISTER RESPONSE: "));
+    Serial.println(response);
+  }
+
+  return true;
+}
+
+void maintainDeviceRegistration() {
+  if (
+    setupMode ||
+    !identityValid ||
+    WiFi.status() != WL_CONNECTED ||
+    !hasValidNetworkTime()
+  ) {
+    return;
+  }
+
+  unsigned long now = millis();
+
+  unsigned long interval =
+    deviceCloudRegistered
+      ? DEVICE_REGISTRATION_REFRESH_INTERVAL
+      : DEVICE_REGISTRATION_RETRY_INTERVAL;
+
+  if (
+    lastDeviceRegistrationAttempt != 0 &&
+    now - lastDeviceRegistrationAttempt < interval
+  ) {
+    return;
+  }
+
+  lastDeviceRegistrationAttempt = now;
+  registerDeviceWithCloud();
 }
 
 bool extractUnsignedJsonInteger(
@@ -2765,6 +3735,12 @@ void maintainWiFi() {
 
   if (wifiConnected) {
     wifiConnected = false;
+    deviceCloudRegistered = false;
+    lastDeviceRegistrationAttempt = 0;
+    lastDeviceHeartbeatAttempt = 0;
+    lastDeviceHeartbeatSuccess = 0;
+    lastDeviceCommandPollAttempt = 0;
+    lastDeviceCommandPollSuccess = 0;
 
     Serial.println(
       F("WIFI CONNECTION LOST")
@@ -2912,6 +3888,12 @@ void loop() {
   maintainWiFi();
 
   maintainNetworkTime();
+
+  maintainDeviceRegistration();
+
+  maintainDeviceHeartbeat();
+
+  maintainCloudCommands();
 
   maintainScheduleSync();
 
