@@ -1287,3 +1287,52 @@ LAST SUCCESSFUL GIT PUSH BEFORE THIS UPDATE:
 NEXT:
 - Hardware E2E validation for Points 18-25.
 - Continue next roadmap point after software validation.
+
+---
+
+UPDATE - 2026-09-25 - QR ARCHITECTURE CORRECTION
+
+QR SYSTEM STATUS: REMOVED
+
+The previous QR-based onboarding, QR-primary pairing, and QR fallback concepts are no longer part of the current product architecture.
+
+CURRENT LOCKED RULES:
+- QR is NOT the primary pairing method.
+- QR is NOT a fallback pairing method.
+- QR is NOT required for onboarding.
+- QR scanner/claim flow is deprecated and removed from the current product flow.
+- Do not reintroduce QR into onboarding unless the architecture is explicitly changed in the future.
+
+CURRENT DEVICE ONBOARDING FLOW:
+Device powers on
+-> Setup AP
+-> User configures Wi-Fi
+-> Device connects to cloud
+-> Device securely registers/authenticates
+-> Backend creates temporary discovery presence/session
+-> User opens Add Device
+-> App scans/searches for available devices
+-> User selects discovered device
+-> Secure discovery binding
+-> Select/confirm House and Room
+-> Claim device
+-> Done
+
+ROADMAP CORRECTIONS:
+- Point 79: QR-primary claim flow = REMOVED / REPLACED.
+- Point 80: QR claim system = REMOVED. Automatic discovery is the only current onboarding architecture.
+- Point 95: Automatic discovery/pairing replaces QR completely.
+- Point 96: Add Device uses Scan/Search Device; no QR scanner is part of the current UX.
+- Point 97: Final claim flow uses secure discovery binding/session, not QR.
+- Section 7 QR Policy is DEPRECATED and superseded by this update.
+
+POINT 25:
+STATUS: IMPLEMENTED / COMPILE PASSED / HARDWARE E2E PENDING
+
+LATEST SUCCESSFUL GIT PUSH:
+- Date: 2026-09-25
+- Branch: main
+- Machine: SEO-PC / Office
+- Commit: 07f3fa0
+- Commit Message: Complete device schedule sync foundation
+
